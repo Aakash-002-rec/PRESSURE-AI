@@ -1,0 +1,140 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #0b0f19;
+  color: #f1f5f9;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Glassmorphism Classes */
+.glass-panel {
+  background: rgba(17, 24, 39, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-hover {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.glass-panel-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgba(249, 115, 22, 0.3);
+  box-shadow: 0 12px 24px -10px rgba(249, 115, 22, 0.15);
+}
+
+/* Interactive Widget Card Animations */
+.widget-interactive {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  position: relative;
+}
+.widget-interactive:hover {
+  transform: translateY(-4px) scale(1.015);
+  box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.6), 0 0 25px rgba(249, 115, 22, 0.12);
+  border-color: rgba(249, 115, 22, 0.4);
+}
+.widget-interactive:active {
+  transform: scale(0.985);
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-pop-in {
+  animation: popIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Pressure Mode Intense Theme */
+.pressure-active-border {
+  border-color: #ea580c !important;
+  box-shadow: 0 0 25px -3px rgba(234, 88, 12, 0.35), 0 0 10px rgba(239, 68, 68, 0.2);
+}
+
+.pressure-glow-text {
+  text-shadow: 0 0 12px rgba(249, 115, 22, 0.6);
+}
+
+@keyframes pulseFire {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.02); }
+}
+
+.animate-pulse-fire {
+  animation: pulseFire 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes glow {
+  from { box-shadow: 0 0 10px -2px rgba(249, 115, 22, 0.4); }
+  to { box-shadow: 0 0 25px 5px rgba(239, 68, 68, 0.7); }
+}
+
+.animate-glow {
+  animation: glow 2.5s ease-in-out infinite alternate;
+}
+
+/* Attractive Digital Timer Widget Styles */
+.timer-widget {
+  background: radial-gradient(circle at 50% 0%, rgba(249, 115, 22, 0.12), rgba(15, 23, 42, 0.95));
+  box-shadow: 0 4px 20px -2px rgba(249, 115, 22, 0.2), inset 0 1px 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.timer-widget-pressure {
+  background: radial-gradient(circle at 50% 0%, rgba(239, 68, 68, 0.25), rgba(15, 23, 42, 0.95));
+  box-shadow: 0 4px 25px 0 rgba(239, 68, 68, 0.45), inset 0 1px 1px 0 rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(12px);
+  animation: pulseFire 2s infinite ease-in-out;
+}
+
+.timer-digits {
+  font-family: 'JetBrains Mono', monospace;
+  text-shadow: 0 0 16px rgba(249, 115, 22, 0.5), 0 0 2px rgba(255, 255, 255, 0.8);
+}
+
+.timer-digits-pressure {
+  font-family: 'JetBrains Mono', monospace;
+  text-shadow: 0 0 20px rgba(239, 68, 68, 0.8), 0 0 3px rgba(255, 255, 255, 0.9);
+}
+
+.timer-digits-blue {
+  font-family: 'JetBrains Mono', monospace;
+  text-shadow: 0 0 16px rgba(59, 130, 246, 0.6), 0 0 2px rgba(255, 255, 255, 0.8);
+}
