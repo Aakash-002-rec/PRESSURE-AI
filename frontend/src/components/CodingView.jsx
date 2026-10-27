@@ -2,14 +2,31 @@ import React, { useState, useEffect } from "react";
 import { 
   Code2, Play, Send, RefreshCw, Sparkles, CheckCircle2, 
   AlertTriangle, Clock, Zap, Cpu, Terminal, ArrowRight, 
-  ChevronRight, BookOpen, Layers, Check, X, RotateCcw
+  ChevronRight, BookOpen, Layers, Check, X, RotateCcw, Lock, Compass
 } from "lucide-react";
 import { api } from "../api";
 
-export default function CodingView({ user, onGoToInterview, onOpenAuth }) {
+export default function CodingView({ 
+  user, 
+  onGoToInterview, 
+  onGoToDashboard, 
+  onStartRetest, 
+  retestLoading = false, 
+  onOpenAuth 
+}) {
   const [problems, setProblems] = useState([]);
   const [selectedProblemId, setSelectedProblemId] = useState(null);
   const [loadingProblems, setLoadingProblems] = useState(true);
+  const [codingRemainingSeconds, setCodingRemainingSeconds] = useState(1800);
+
+  async function handleRetest() {
+    if (onStartRetest) {
+      await onStartRetest();
+    } else {
+      await api.assessment.startRetest();
+      await loadProblems();
+    }
+  }
 
   // Editor state
   const [code, setCode] = useState("");
@@ -30,11 +47,37 @@ export default function CodingView({ user, onGoToInterview, onOpenAuth }) {
     loadProblems();
   }, []);
 
+  useEffect(() => {
+    if (!codingStatus?.is_locked && !codingStatus?.all_completed) {
+      const interval = setInterval(() => {
+        setCodingRemainingSeconds((prev) => {
+          if (prev <= 1) {
+            refreshStatus();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [codingStatus?.is_locked, codingStatus?.all_completed]);
+
   async function loadProblems(mode = null) {
     try {
       setLoadingProblems(true);
       const statusData = await api.coding.getStatus().catch(() => null);
-      if (statusData) setCodingStatus(statusData);
+      if (statusData) {
+        setCodingStatus(statusData);
+        if (statusData.remaining_seconds !== undefined) {
+          setCodingRemainingSeconds(statusData.remaining_seconds);
+        }
+      }
+
+      if (statusData?.is_locked) {
+        setProblems([]);
+        setSelectedProblemId(null);
+        return;
+      }
 
       if (statusData?.all_completed) {
         setProblems([]);
@@ -331,6 +374,71 @@ def two_sum(nums: List[int], target: int) -> List[int]:
     if exp == 0:
         return 1
     return base * power(base, exp - 1)
+`,
+    14: `def merge_sorted(list1: list, list2: list) -> list:
+    res = []
+    i = j = 0
+    while i < len(list1) and j < len(list2):
+        if list1[i] <= list2[j]:
+            res.append(list1[i])
+            i += 1
+        else:
+            res.append(list2[j])
+            j += 1
+    res.extend(list1[i:])
+    res.extend(list2[j:])
+    return res
+`,
+    15: `def longest_common_prefix(strs: list) -> str:
+    if not strs:
+        return ''
+    prefix = strs[0]
+    for s in strs[1:]:
+        while not s.startswith(prefix):
+            prefix = prefix[:-1]
+            if not prefix:
+                return ''
+    return prefix
+`,
+    16: `def sum_of_digits(n: int) -> int:
+    if n < 0:
+        raise ValueError('n must be non-negative')
+    if n == 0:
+        return 0
+    return (n % 10) + sum_of_digits(n // 10)
+`,
+    17: `def missing_number(nums: list) -> int:
+    n = len(nums)
+    expected_sum = n * (n + 1) // 2
+    return expected_sum - sum(nums)
+`,
+    18: `def single_number(nums: list) -> int:
+    res = 0
+    for x in nums:
+        res ^= x
+    return res
+`,
+    19: `def move_zeroes(nums: list) -> list:
+    arr = list(nums)
+    pos = 0
+    for x in arr:
+        if x != 0:
+            arr[pos] = x
+            pos += 1
+    while pos < len(arr):
+        arr[pos] = 0
+        pos += 1
+    return arr
+`,
+    20: `def roman_to_int(s: str) -> int:
+    vals = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000}
+    total = 0
+    for i in range(len(s)):
+        if i + 1 < len(s) and vals[s[i]] < vals[s[i + 1]]:
+            total -= vals[s[i]]
+        else:
+            total += vals[s[i]]
+    return total
 `
   };
 
@@ -346,6 +454,13 @@ def two_sum(nums: List[int], target: int) -> List[int]:
     if (titleLower.includes("anagram")) return VERIFIED_SOLUTIONS[11];
     if (titleLower.includes("uniq") || titleLower.includes("non-repeating")) return VERIFIED_SOLUTIONS[12];
     if (titleLower.includes("power")) return VERIFIED_SOLUTIONS[13];
+    if (titleLower.includes("merge")) return VERIFIED_SOLUTIONS[14];
+    if (titleLower.includes("prefix")) return VERIFIED_SOLUTIONS[15];
+    if (titleLower.includes("sum of digits") || titleLower.includes("sum_of_digits")) return VERIFIED_SOLUTIONS[16];
+    if (titleLower.includes("missing")) return VERIFIED_SOLUTIONS[17];
+    if (titleLower.includes("single")) return VERIFIED_SOLUTIONS[18];
+    if (titleLower.includes("move") || titleLower.includes("move_zeroes")) return VERIFIED_SOLUTIONS[19];
+    if (titleLower.includes("roman")) return VERIFIED_SOLUTIONS[20];
     if (titleLower.includes("factorial")) return VERIFIED_SOLUTIONS[1];
     if (titleLower.includes("fibonacci")) return VERIFIED_SOLUTIONS[2];
     if (titleLower.includes("two sum") || titleLower.includes("target pair")) return VERIFIED_SOLUTIONS[3];
@@ -473,6 +588,34 @@ def two_sum(nums: List[int], target: int) -> List[int]:
     }
   }
 
+  if (codingStatus?.is_locked) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16 animate-fade-in text-center space-y-6">
+        <div className="w-16 h-16 rounded-3xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 mx-auto shadow-xl">
+          <Lock className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-red-400 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20">
+            Stage 2 Locked
+          </span>
+          <h2 className="text-3xl font-black text-white">Coding Assessment Is Locked</h2>
+          <p className="text-sm text-slate-400 max-w-lg mx-auto">
+            {codingStatus.lock_reason || "You must complete Stage 1: Aptitude Test before starting the Coding Assessment."}
+          </p>
+        </div>
+        <div className="flex items-center justify-center gap-3 pt-4">
+          <button
+            onClick={() => onGoToDashboard ? onGoToDashboard() : null}
+            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-blue-500/25 flex items-center gap-2 transition-all hover:scale-105"
+          >
+            <Compass className="w-4 h-4" />
+            Go to Stage 1: Aptitude Test
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (loadingProblems) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
@@ -484,6 +627,19 @@ def two_sum(nums: List[int], target: int) -> List[int]:
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 animate-fade-in space-y-6">
+      {/* Low-Time Warning Alert Banner */}
+      {codingRemainingSeconds <= 300 && codingRemainingSeconds > 0 && (
+        <div className="p-3.5 bg-red-950/60 border border-red-500/60 rounded-2xl flex items-center justify-between text-xs text-red-300 animate-pulse shadow-lg">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+            <span><strong>Time Warning:</strong> Less than 5 minutes remaining in Coding Assessment! Solutions will be automatically finalized at deadline.</span>
+          </div>
+          <span className="font-mono font-bold text-red-400">
+            {Math.floor(codingRemainingSeconds / 60)}:{(codingRemainingSeconds % 60).toString().padStart(2, '0')}
+          </span>
+        </div>
+      )}
+
       {/* Top Banner */}
       <div className="glass-panel rounded-3xl p-6 md:p-8 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -491,7 +647,7 @@ def two_sum(nums: List[int], target: int) -> List[int]:
             <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
               Placement Stage 2
             </span>
-            <span className="text-xs text-slate-400 font-mono">Isolated Python Runner</span>
+            <span className="text-xs text-slate-400 font-mono">Isolated Python Runner • Exactly 3 Questions</span>
           </div>
           <h2 className="text-2xl md:text-3xl font-black text-white">Coding Assessment Session</h2>
           <p className="text-xs text-slate-400 mt-1 max-w-xl">
@@ -501,6 +657,17 @@ def two_sum(nums: List[int], target: int) -> List[int]:
 
         {/* Active Problem Chip & Navigation Controls */}
         <div className="flex flex-wrap items-center gap-3">
+          {codingStatus && !codingStatus.is_locked && (
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border font-mono text-xs font-bold shadow-md ${
+              codingRemainingSeconds <= 300
+                ? "bg-red-950/80 border-red-500 text-red-300 animate-pulse shadow-red-500/20"
+                : "bg-slate-950/80 border-slate-800 text-emerald-400"
+            }`}>
+              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Time: {Math.floor(codingRemainingSeconds / 60)}:{(codingRemainingSeconds % 60).toString().padStart(2, '0')}</span>
+            </div>
+          )}
+
           {codingStatus && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] font-mono">
               <span className="text-indigo-400 font-bold">
@@ -537,6 +704,18 @@ def two_sum(nums: List[int], target: int) -> List[int]:
           >
             Proceed to AI Interview <ChevronRight className="w-4 h-4" />
           </button>
+
+          {onStartRetest && (
+            <button
+              onClick={handleRetest}
+              disabled={retestLoading}
+              title="Start a fresh attempt across Aptitude, Coding (0/3), and AI Interview"
+              className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/50 text-slate-300 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 text-amber-400 ${retestLoading ? "animate-spin" : ""}`} />
+              Retest
+            </button>
+          )}
         </div>
       </div>
 
@@ -575,7 +754,7 @@ def two_sum(nums: List[int], target: int) -> List[int]:
             <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/10">
               <CheckCircle2 className="w-8 h-8" />
             </div>
-            <h3 className="text-2xl font-bold text-white">Coding Assessment Completed — You have successfully completed all 3 questions.</h3>
+            <h3 className="text-2xl font-bold text-white">Coding Assessment Completed — 3 of 3 Questions Solved</h3>
             <p className="text-sm text-slate-300 max-w-lg mx-auto">
               Persistent verification confirms you have successfully passed all 3 required coding challenges in this assessment session!
             </p>
@@ -593,13 +772,23 @@ def two_sum(nums: List[int], target: int) -> List[int]:
                 <span className="text-lg font-extrabold text-slate-400">0</span>
               </div>
             </div>
-            <div className="flex items-center justify-center gap-3 pt-2">
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
               <button
                 onClick={onGoToInterview}
                 className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-orange-500/25"
               >
                 Proceed to AI Interview <ArrowRight className="w-4 h-4" />
               </button>
+              {onStartRetest && (
+                <button
+                  onClick={handleRetest}
+                  disabled={retestLoading}
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/50 text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
+                >
+                  <RotateCcw className={`w-4 h-4 text-amber-400 ${retestLoading ? "animate-spin" : ""}`} />
+                  {retestLoading ? "Starting New Retest..." : "Retest / Start New Attempt"}
+                </button>
+              )}
             </div>
           </div>
         ) : codingStatus?.has_incomplete ? (

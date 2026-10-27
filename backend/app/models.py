@@ -71,6 +71,12 @@ class InterviewSummary(BaseModel):
     pressure_topic_name: Optional[str] = None
     started_at: str
     completed_at: Optional[str] = None
+    deadline: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    remaining_seconds: Optional[int] = None
+    is_timeout: Optional[bool] = False
+    completion_reason: Optional[str] = "normal"
+    question_time_limit_seconds: Optional[int] = 180
 
 # Question & Answer Models
 class QuestionResponse(BaseModel):
@@ -96,6 +102,8 @@ class AnswerSubmit(BaseModel):
     answer_text: str = Field(..., min_length=1)
     code_answer: Optional[str] = None
     language: Optional[str] = "python"
+    time_spent_seconds: Optional[int] = 0
+
 
 class AnswerEvaluationResponse(BaseModel):
     question_id: int
@@ -267,6 +275,7 @@ class AptitudeTestSubmit(BaseModel):
     total_questions: int
     time_taken_seconds: int
     answers: List[AptitudeAnswerSubmission]
+    is_timeout: Optional[bool] = False
 
 class AptitudeResultResponse(BaseModel):
     attempt_id: int
@@ -280,6 +289,35 @@ class AptitudeResultResponse(BaseModel):
     weak_categories: List[str]
     recommendation: str
     ai_evaluation: Optional[Dict[str, Any]] = None
+    is_timeout: Optional[bool] = False
+    completion_reason: Optional[str] = "completed_normally"
+    attempt_id_str: Optional[str] = None
+
+class AptitudeSessionResponse(BaseModel):
+    attempt_id: str
+    in_test: bool
+    completed: bool
+    questions: List[AptitudeQuestionResponse] = []
+    current_answers: Dict[str, Any] = {}
+    started_at: Optional[str] = None
+    deadline: Optional[str] = None
+    remaining_seconds: int = 0
+    duration_seconds: int = 900
+    is_timeout: bool = False
+    total_questions: int = 10
+    answered_count: int = 0
+    category: str = "All"
+    difficulty: str = "Intermediate"
+    latest_result: Optional[Dict[str, Any]] = None
+
+class AptitudeSaveProgressRequest(BaseModel):
+    answers: Dict[int, Optional[int]]
+    elapsed_seconds: Optional[int] = None
+
+class AptitudeStartRequest(BaseModel):
+    category: Optional[str] = "All"
+    difficulty: Optional[str] = "Intermediate"
+    total_questions: Optional[int] = 10
 
 # Coding Models
 class CodingProblemSummary(BaseModel):
@@ -310,6 +348,17 @@ class CodingStatusResponse(BaseModel):
     all_completed: bool
     session_limit: Optional[int] = 3
     current_question_number: Optional[int] = 1
+    session_id: Optional[str] = None
+    attempt_id: Optional[str] = None
+    language: Optional[str] = "python"
+    domain: Optional[str] = "Algorithms"
+    remaining_seconds: Optional[int] = None
+    duration_seconds: Optional[int] = 1800
+    started_at: Optional[str] = None
+    deadline: Optional[str] = None
+    is_timeout: Optional[bool] = False
+    is_locked: Optional[bool] = False
+    lock_reason: Optional[str] = None
 
 class CodingRunRequest(BaseModel):
     problem_id: int
@@ -320,6 +369,7 @@ class CodingSubmitRequest(BaseModel):
     problem_id: int
     code: str
     language: str = "python"
+    time_spent_seconds: Optional[int] = 0
 
 class CodingResultResponse(BaseModel):
     attempt_id: Optional[int] = None
@@ -336,6 +386,7 @@ class CodingResultResponse(BaseModel):
     stdout: Optional[str] = ""
     error: Optional[str] = None
     ai_evaluation: Optional[Dict[str, Any]] = None
+
 
 # Practice & Roadmap Models
 class PracticeQuestionResponse(BaseModel):
@@ -398,3 +449,68 @@ class CombinedAssessmentResponse(BaseModel):
     weak_topics: List[Dict[str, Any]]
     major_weaknesses: List[MajorWeaknessItem]
     recommended_priority: List[str]
+
+# Assessment Attempt / Retest Models
+class AssessmentAttemptResponse(BaseModel):
+    attempt_id: str
+    user_id: int
+    status: str
+    aptitude_status: str
+    coding_status: str
+    interview_status: str
+    coding_session_id: Optional[str] = None
+    aptitude_attempt_id: Optional[int] = None
+    interview_id: Optional[int] = None
+    coding_completed_count: int = 0
+    coding_total_count: int = 3
+    created_at: str
+    completed_at: Optional[str] = None
+    attempt_number: int = 1
+    current_stage: str = "aptitude"
+    completion_reason: Optional[str] = None
+    total_time_taken_seconds: int = 0
+    aptitude_duration_seconds: int = 900
+    aptitude_remaining_seconds: Optional[int] = None
+    aptitude_started_at: Optional[str] = None
+    aptitude_deadline: Optional[str] = None
+    aptitude_timeout: bool = False
+    coding_duration_seconds: int = 1800
+    coding_remaining_seconds: Optional[int] = None
+    coding_started_at: Optional[str] = None
+    coding_deadline: Optional[str] = None
+    coding_timeout: bool = False
+    interview_duration_seconds: int = 1200
+    interview_remaining_seconds: Optional[int] = None
+    interview_started_at: Optional[str] = None
+    interview_deadline: Optional[str] = None
+    interview_timeout: bool = False
+
+class AssessmentRetestResponse(BaseModel):
+    success: bool = True
+    message: str
+    new_attempt: AssessmentAttemptResponse
+    coding_status: CodingStatusResponse
+    attempt_id: Optional[str] = None
+    coding_session_id: Optional[str] = None
+
+class AssessmentDetailReportResponse(BaseModel):
+    attempt_id: str
+    attempt_number: int
+    user_id: int
+    candidate_name: str
+    status: str
+    completion_reason: Optional[str] = None
+    started_at: str
+    completed_at: Optional[str] = None
+    total_duration_seconds: int
+    total_time_taken_seconds: int
+    overall_readiness: float
+    performance_level: str
+    aptitude: Dict[str, Any]
+    coding: Dict[str, Any]
+    interview: Dict[str, Any]
+    efficiency: Dict[str, Any]
+    recommendations: Dict[str, Any]
+    historical_comparison: Optional[Dict[str, Any]] = None
+
+

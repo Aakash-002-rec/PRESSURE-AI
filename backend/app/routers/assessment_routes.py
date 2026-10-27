@@ -5,10 +5,12 @@ from datetime import datetime
 from ..database import get_db_connection
 from ..models import (
     CombinedAssessmentResponse, PracticeQuestionResponse, PracticeSubmitRequest,
-    PracticeResultResponse, RoadmapTaskItem, RoadmapTaskUpdate
+    PracticeResultResponse, RoadmapTaskItem, RoadmapTaskUpdate,
+    AssessmentAttemptResponse, AssessmentRetestResponse, AssessmentDetailReportResponse
 )
 from ..auth import get_current_user
 from ..services.cross_module_engine import CrossModuleEngine
+from ..services.attempt_service import AttemptService
 
 router = APIRouter(tags=["Placement Assessment"])
 
@@ -191,3 +193,80 @@ def submit_practice_answers(data: PracticeSubmitRequest, current_user: dict = De
         "improvement_message": improvement_msg,
         "details": details
     }
+
+@router.get("/assessment/attempt/current", response_model=AssessmentAttemptResponse)
+def get_current_assessment_attempt(current_user: dict = Depends(get_current_user)):
+    """
+    Returns the currently active assessment attempt for the logged-in user.
+    If no active attempt exists, initializes a fresh unified attempt.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    attempt = AttemptService.get_or_create_active_attempt(cursor, current_user["id"])
+    conn.commit()
+    conn.close()
+    return attempt
+
+@router.post("/assessment/retest", response_model=AssessmentRetestResponse)
+@router.post("/assessment/attempt/new", response_model=AssessmentRetestResponse)
+def start_assessment_retest(current_user: dict = Depends(get_current_user)):
+    """
+    Starts a fresh full retest across Aptitude, Coding Assessment (0 of 3), and AI Mock Interview.
+    - Generates a unique attempt_id.
+    - Preserves historical records in the database.
+    - Resets all completion flags and question counters for the new attempt.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    new_attempt = AttemptService.start_retest_attempt(cursor, current_user["id"])
+    conn.commit()
+    conn.close()
+
+    from .coding_routes import get_coding_status
+    c_status = get_coding_status(current_user=current_user)
+
+    return AssessmentRetestResponse(
+        success=True,
+        message="Fresh assessment attempt initialized successfully across Aptitude, Coding, and AI Mock Interview.",
+        new_attempt=new_attempt,
+        coding_status=c_status,
+        attempt_id=new_attempt["attempt_id"],
+        coding_session_id=new_attempt.get("coding_session_id")
+    )
+
+@router.get("/assessment/attempts/history", response_model=List[AssessmentAttemptResponse])
+def get_assessment_attempt_history(current_user: dict = Depends(get_current_user)):
+    """Returns past assessment attempts for this user, newest first."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    history = AttemptService.get_attempt_history(cursor, current_user["id"])
+    conn.close()
+    return history
+
+@router.get("/assessment/attempt/{attempt_id}/report", response_model=AssessmentDetailReportResponse)
+def get_assessment_attempt_report(attempt_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Returns the comprehensive synthesized performance report for a specific assessment attempt.
+    Enforces user ownership check.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, aptitude_status, coding_status, interview_status FROM assessment_attempts WHERE attempt_id = ?", (attempt_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Assessment attempt not found.")
+    if current_user["role"] != "admin" and row["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden: You cannot access another candidate's assessment report.")
+
+    report = CrossModuleEngine.get_attempt_performance_report(user_id=current_user["id"], attempt_id=attempt_id)
+    return report
+
+@router.get("/assessment/report/latest", response_model=AssessmentDetailReportResponse)
+def get_latest_assessment_report(current_user: dict = Depends(get_current_user)):
+    """Returns the performance report for the candidate's latest attempt."""
+    report = CrossModuleEngine.get_attempt_performance_report(user_id=current_user["id"], attempt_id=None)
+    return report
+
+

@@ -178,14 +178,25 @@ class TestCodingProblemDeduplication(unittest.TestCase):
     def setUp(self):
         self.conn = get_db_connection()
         self.cursor = self.conn.cursor()
+        # Clean up any leftover test users first
+        self.cursor.execute("DELETE FROM users WHERE email IN ('dedup_a@test.com', 'dedup_b@test.com')")
+        self.conn.commit()
         # Create two distinct test users
         self.cursor.execute("INSERT INTO users (name, email, password_hash) VALUES ('user_dedup_a', 'dedup_a@test.com', 'h')")
         self.user_a_id = self.cursor.lastrowid
         self.cursor.execute("INSERT INTO users (name, email, password_hash) VALUES ('user_dedup_b', 'dedup_b@test.com', 'h')")
         self.user_b_id = self.cursor.lastrowid
+
+        from app.services.attempt_service import AttemptService
+        AttemptService.get_or_create_active_attempt(self.cursor, self.user_a_id)
+        self.cursor.execute("UPDATE assessment_attempts SET aptitude_status = 'completed' WHERE user_id = ?", (self.user_a_id,))
+        AttemptService.get_or_create_active_attempt(self.cursor, self.user_b_id)
+        self.cursor.execute("UPDATE assessment_attempts SET aptitude_status = 'completed' WHERE user_id = ?", (self.user_b_id,))
         self.conn.commit()
 
     def tearDown(self):
+        self.cursor.execute("DELETE FROM assessment_attempts WHERE user_id IN (?, ?)", (self.user_a_id, self.user_b_id))
+        self.cursor.execute("DELETE FROM coding_sessions WHERE user_id IN (?, ?)", (self.user_a_id, self.user_b_id))
         self.cursor.execute("DELETE FROM user_served_questions WHERE user_id IN (?, ?)", (self.user_a_id, self.user_b_id))
         self.cursor.execute("DELETE FROM coding_attempts WHERE user_id IN (?, ?)", (self.user_a_id, self.user_b_id))
         self.cursor.execute("DELETE FROM users WHERE id IN (?, ?)", (self.user_a_id, self.user_b_id))

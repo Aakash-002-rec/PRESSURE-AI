@@ -107,21 +107,36 @@ class InterviewEngine:
         difficulty: str,
         interview_type: str,
         total_questions: int,
-        topic_id: Optional[int] = None
+        topic_id: Optional[int] = None,
+        attempt_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Initializes a new interview session."""
+        """Initializes a new interview session linked to active attempt."""
         conn = get_db_connection()
         cursor = conn.cursor()
+
+        if not attempt_id:
+            try:
+                from .attempt_service import AttemptService
+                active_att = AttemptService.get_or_create_active_attempt(cursor, user_id)
+                attempt_id = active_att.get("attempt_id")
+            except Exception:
+                attempt_id = None
 
         cursor.execute("""
             INSERT INTO interviews (
                 user_id, domain_id, topic_id, difficulty, current_difficulty,
                 interview_type, total_questions, status, pressure_mode_active,
-                consecutive_weak_count, hints_used_total
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'in_progress', 0, 0, 0)
-        """, (user_id, domain_id, topic_id, difficulty, difficulty, interview_type, total_questions))
+                consecutive_weak_count, hints_used_total, attempt_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'in_progress', 0, 0, 0, ?)
+        """, (user_id, domain_id, topic_id, difficulty, difficulty, interview_type, total_questions, attempt_id))
         
         interview_id = cursor.lastrowid
+        if attempt_id:
+            try:
+                from .attempt_service import AttemptService
+                AttemptService.update_interview_status(cursor, user_id, attempt_id, interview_id, "in_progress")
+            except Exception:
+                pass
         conn.commit()
 
         # Fetch the created interview details
@@ -518,7 +533,7 @@ class InterviewEngine:
             }
 
     @staticmethod
-    def submit_answer(question_id: int, answer_text: str, code_answer: Optional[str] = None) -> Dict[str, Any]:
+    def submit_answer(question_id: int, answer_text: str, code_answer: Optional[str] = None, time_spent_seconds: Optional[int] = 0) -> Dict[str, Any]:
         """
         Evaluates the answer, updates adaptive difficulty, tests for weakness / pressure mode,
         and records state transitions.
@@ -566,18 +581,20 @@ class InterviewEngine:
         weakness_detected = eval_result.get("weakness_detected", overall_score < 6.0)
         weakness_level = eval_result.get("weakness_level", "moderate" if weakness_detected else "none")
 
-        # Save answer with code
+        # Save answer with code and time spent
         cursor.execute("""
             INSERT INTO answers (
                 question_id, answer_text, code_answer, correctness, relevance,
                 conceptual_understanding, completeness, overall_score,
-                hints_used, feedback, missing_concepts, weakness_detected, weakness_level
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                hints_used, feedback, missing_concepts, weakness_detected, weakness_level,
+                time_spent_seconds, submitted_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """, (
             question_id, answer_text, code_answer, eval_result["correctness"], eval_result["relevance"],
             eval_result["conceptual_understanding"], eval_result["completeness"],
             overall_score, hints_used, eval_result["feedback"],
-            json.dumps(missing_concepts), 1 if weakness_detected else 0, weakness_level
+            json.dumps(missing_concepts), 1 if weakness_detected else 0, weakness_level,
+            time_spent_seconds or 0
         ))
 
         # ADAPTIVE DIFFICULTY ENGINE LOGIC
@@ -796,6 +813,15 @@ class InterviewEngine:
             WHERE id = ?
         """, (avg_overall, avg_tech, avg_concept, avg_prob, avg_comm, interview_id))
 
+        cursor.execute("SELECT user_id, attempt_id FROM interviews WHERE id = ?", (interview_id,))
+        i_row = cursor.fetchone()
+        if i_row and i_row["attempt_id"]:
+            try:
+                from .attempt_service import AttemptService
+                AttemptService.update_interview_status(cursor, i_row["user_id"], i_row["attempt_id"], interview_id, "completed")
+            except Exception:
+                pass
+
         # Compute Topic-Wise Scores & Weakness Identification
         cursor.execute("""
             SELECT 
@@ -864,3 +890,49 @@ class InterviewEngine:
                     json.dumps(rec_data["action_plan"]),
                     json.dumps(rec_data["practice_questions"])
                 ))
+
+    @staticmethod
+    def finalize_timeout_interview(interview_id: int, conn=None):
+        """Finalizes an interview due to time expiration, evaluating whatever answers were submitted."""
+        close_conn = False
+        if conn is None:
+            conn = get_db_connection()
+            close_conn = True
+
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, attempt_id FROM interviews WHERE id = ?", (interview_id,))
+        row = cursor.fetchone()
+        if not row:
+            if close_conn:
+                conn.close()
+            return
+
+        cursor.execute("""
+            UPDATE interviews
+            SET status = 'completed',
+                is_timeout = 1,
+                completion_reason = 'timeout',
+                completed_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (interview_id,))
+
+        InterviewEngine._finalize_interview(interview_id, conn)
+
+        if row["attempt_id"]:
+            try:
+                from .attempt_service import AttemptService
+                AttemptService.update_interview_status(
+                    cursor=cursor,
+                    user_id=row["user_id"],
+                    attempt_id=row["attempt_id"],
+                    interview_id=interview_id,
+                    status="completed",
+                    is_timeout=True
+                )
+            except Exception:
+                pass
+
+        conn.commit()
+        if close_conn:
+            conn.close()
+

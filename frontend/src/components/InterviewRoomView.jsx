@@ -19,6 +19,11 @@ export default function InterviewRoomView({ interview, onFinishInterview }) {
   const [hintsList, setHintsList] = useState([]);
   const [lastEvaluation, setLastEvaluation] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [sessionRemainingSeconds, setSessionRemainingSeconds] = useState(
+    typeof interview?.remaining_seconds === "number" ? interview.remaining_seconds : 1200
+  );
+  const [questionElapsedSeconds, setQuestionElapsedSeconds] = useState(0);
+  const [isTimedOut, setIsTimedOut] = useState(false);
   const [isMonospace, setIsMonospace] = useState(false);
   const [showEvalModal, setShowEvalModal] = useState(false);
   const [transitionNotification, setTransitionNotification] = useState(null);
@@ -27,13 +32,32 @@ export default function InterviewRoomView({ interview, onFinishInterview }) {
 
   const timerRef = useRef(null);
 
-  // Timer
+  // Timer: increment elapsed seconds, decrement session countdown
   useEffect(() => {
     timerRef.current = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1);
+      setQuestionElapsedSeconds((prev) => prev + 1);
+      setSessionRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current);
+          setIsTimedOut(true);
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
     return () => clearInterval(timerRef.current);
   }, []);
+
+  // Handle timeout auto-finish
+  useEffect(() => {
+    if (isTimedOut) {
+      const timer = setTimeout(() => {
+        onFinishInterview(interview.id);
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [isTimedOut, interview.id, onFinishInterview]);
 
   // Fetch initial question
   useEffect(() => {
@@ -47,6 +71,7 @@ export default function InterviewRoomView({ interview, onFinishInterview }) {
     setHintsList([]);
     setLastEvaluation(null);
     setShowEvalModal(false);
+    setQuestionElapsedSeconds(0);
 
     try {
       const q = await api.interviews.getNextQuestion(interview.id);
@@ -73,14 +98,15 @@ export default function InterviewRoomView({ interview, onFinishInterview }) {
 
   async function handleSubmitAnswer(e) {
     if (e) e.preventDefault();
-    if ((!answerText.trim() && !codeAnswer.trim()) || submittingAnswer || !currentQuestion) return;
+    if ((!answerText.trim() && !codeAnswer.trim()) || submittingAnswer || !currentQuestion || isTimedOut) return;
 
     setSubmittingAnswer(true);
     try {
       const result = await api.interviews.submitAnswer(currentQuestion.id, {
         answer_text: answerText || "Code implementation submitted in editor.",
         code_answer: codeAnswer,
-        language: currentQuestion.code_language || "python"
+        language: currentQuestion.code_language || "python",
+        time_spent_seconds: questionElapsedSeconds
       });
       setLastEvaluation(result);
       setShowEvalModal(true);
@@ -89,7 +115,11 @@ export default function InterviewRoomView({ interview, onFinishInterview }) {
         setTransitionNotification(result.difficulty_change_reason);
       }
     } catch (err) {
-      alert("Error submitting answer: " + err.message);
+      if (err.message && err.message.toLowerCase().includes("expired")) {
+        setIsTimedOut(true);
+      } else {
+        alert("Error submitting answer: " + err.message);
+      }
     } finally {
       setSubmittingAnswer(false);
     }
@@ -301,35 +331,77 @@ export default function InterviewRoomView({ interview, onFinishInterview }) {
             </div>
           </div>
 
-          {/* Super Emoji Time Clocker (Short & Attractive Widget) */}
+          {/* Super Emoji Time Clocker (Countdown Remaining + Question Elapsed) */}
           <div className={`flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border shadow-lg backdrop-blur-md transition-all duration-300 ${
-            isPressure
+            isTimedOut
+              ? "bg-red-950/90 border-red-500 shadow-red-500/40 animate-pulse"
+              : sessionRemainingSeconds <= 180
+              ? "bg-gradient-to-r from-red-950/80 via-slate-900 to-red-950/80 border-red-500/60 shadow-red-500/20 ring-1 ring-red-500/30"
+              : isPressure
               ? "bg-gradient-to-r from-red-950/80 via-slate-900 to-red-950/80 border-red-500/60 shadow-red-500/20 ring-1 ring-red-500/30"
               : "bg-gradient-to-r from-slate-900/95 via-slate-900/90 to-slate-950 border-orange-500/40 shadow-orange-500/15 hover:border-orange-500/60"
           }`}>
             <div className={`flex items-center justify-center w-7 h-7 rounded-full text-base select-none ${
-              isPressure 
+              isTimedOut || sessionRemainingSeconds <= 180
+                ? "bg-red-500/20 border border-red-500/40 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-bounce"
+                : isPressure 
                 ? "bg-red-500/20 border border-red-500/40 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-bounce" 
                 : "bg-orange-500/15 border border-orange-500/30 shadow-[0_0_10px_rgba(249,115,22,0.3)] animate-pulse"
             }`}>
-              {isPressure ? "🔥" : "⏱️"}
+              {isTimedOut ? "⌛" : sessionRemainingSeconds <= 180 ? "⚠️" : isPressure ? "🔥" : "⏱️"}
             </div>
-            <span className={`font-mono text-lg md:text-xl font-black tracking-widest leading-none ${
-              isPressure ? "timer-digits-pressure text-red-400" : "timer-digits text-white"
-            }`}>
-              {formatTime(elapsedSeconds)}
-            </span>
+            <div className="flex flex-col">
+              <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400 leading-none">
+                {isTimedOut ? "Timeout" : "Remaining"}
+              </span>
+              <span className={`font-mono text-base md:text-lg font-black tracking-widest leading-tight ${
+                isTimedOut || sessionRemainingSeconds <= 180 ? "timer-digits-pressure text-red-400" : isPressure ? "timer-digits-pressure text-red-400" : "timer-digits text-white"
+              }`}>
+                {formatTime(sessionRemainingSeconds)}
+              </span>
+            </div>
             <span className="relative flex h-2 w-2 ml-0.5">
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                isPressure ? "bg-red-400" : "bg-emerald-400"
+                isTimedOut || sessionRemainingSeconds <= 180 ? "bg-red-400" : isPressure ? "bg-red-400" : "bg-emerald-400"
               }`}></span>
               <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                isPressure ? "bg-red-500" : "bg-emerald-500"
+                isTimedOut || sessionRemainingSeconds <= 180 ? "bg-red-500" : isPressure ? "bg-red-500" : "bg-emerald-500"
               }`}></span>
             </span>
           </div>
         </div>
       </div>
+
+      {/* Timeout Alert Overlay / Banner */}
+      {isTimedOut && (
+        <div className="mb-6 p-4 rounded-xl bg-red-950/80 border border-red-500 text-white flex items-center justify-between shadow-xl shadow-red-500/20 animate-pulse">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-6 h-6 text-red-400 animate-bounce" />
+            <div>
+              <div className="font-extrabold text-sm text-red-300">Interview Session Time Limit Expired</div>
+              <div className="text-xs text-slate-300">
+                All submitted responses have been preserved. Generating your comprehensive performance report...
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => onFinishInterview(interview.id)}
+            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-lg shadow"
+          >
+            Go to Report
+          </button>
+        </div>
+      )}
+
+      {/* Low-Time Warning */}
+      {!isTimedOut && sessionRemainingSeconds <= 180 && (
+        <div className="mb-6 p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-300 flex items-center gap-3 shadow-lg">
+          <Clock className="w-5 h-5 text-amber-400 animate-spin" />
+          <div className="text-xs">
+            <span className="font-bold">Hurry! Less than 3 minutes remaining in this AI mock interview session.</span> Submit your active question answers promptly before the countdown reaches zero.
+          </div>
+        </div>
+      )}
 
       {/* Adaptive Transition Notification / Toast */}
       {transitionNotification && (

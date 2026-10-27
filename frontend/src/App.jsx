@@ -56,6 +56,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [currentInterview, setCurrentInterview] = useState(null);
   const [reportInterviewId, setReportInterviewId] = useState(null);
+  const [selectedAttemptId, setSelectedAttemptId] = useState(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [initializing, setInitializing] = useState(true);
@@ -92,6 +93,7 @@ export default function App() {
     setUser(null);
     setCurrentInterview(null);
     setReportInterviewId(null);
+    setSelectedAttemptId(null);
     setActiveTab("dashboard");
   }
 
@@ -111,18 +113,44 @@ export default function App() {
 
   function handleFinishInterview(interviewId) {
     setReportInterviewId(interviewId);
-    setActiveTab("report");
+    setSelectedAttemptId(null);
+    setActiveTab("combined_report");
   }
 
   function handleRetakeInterview() {
-    setCurrentInterview(null);
-    setReportInterviewId(null);
-    setActiveTab("setup");
+    handleStartRetest();
   }
 
   function handleViewReport(interviewId) {
     setReportInterviewId(interviewId);
     setActiveTab("report");
+  }
+
+  function handleViewAttemptReport(attemptId) {
+    setSelectedAttemptId(attemptId);
+    setActiveTab("combined_report");
+  }
+
+  const [retestLoading, setRetestLoading] = useState(false);
+
+  async function handleStartRetest() {
+    if (retestLoading) return;
+    try {
+      setRetestLoading(true);
+      await api.assessment.startRetest();
+      localStorage.removeItem("pressure_ai_aptitude_completed");
+      localStorage.removeItem("pressure_ai_coding_completed");
+      localStorage.removeItem("pressure_ai_interview_completed");
+      setCurrentInterview(null);
+      setReportInterviewId(null);
+      setSelectedAttemptId(null);
+      setActiveTab("aptitude");
+    } catch (err) {
+      console.error("Failed to start retest attempt:", err);
+      alert("Failed to initialize retest: " + (err.message || "Unknown error"));
+    } finally {
+      setRetestLoading(false);
+    }
   }
 
   return (
@@ -148,6 +176,9 @@ export default function App() {
               onStartCoding={() => setActiveTab("coding")}
               onStartInterview={() => setActiveTab("setup")}
               onStartRoadmap={() => setActiveTab("roadmap")}
+              onStartRetest={handleStartRetest}
+              onViewAttemptReport={handleViewAttemptReport}
+              retestLoading={retestLoading}
               onOpenAuth={() => setAuthModalOpen(true)}
             />
           )}
@@ -157,6 +188,7 @@ export default function App() {
               user={user}
               onGoToCoding={() => setActiveTab("coding")}
               onGoToDashboard={() => setActiveTab("dashboard")}
+              onStartRetest={handleStartRetest}
               onOpenAuth={() => setAuthModalOpen(true)}
             />
           )}
@@ -166,6 +198,8 @@ export default function App() {
               user={user}
               onGoToInterview={() => setActiveTab("setup")}
               onGoToDashboard={() => setActiveTab("dashboard")}
+              onStartRetest={handleStartRetest}
+              retestLoading={retestLoading}
               onOpenAuth={() => setAuthModalOpen(true)}
             />
           )}
@@ -188,7 +222,7 @@ export default function App() {
           {activeTab === "report" && reportInterviewId && (
             <ReportView
               interviewId={reportInterviewId}
-              onRetakeInterview={handleRetakeInterview}
+              onRetakeInterview={handleStartRetest}
               onGoToProgress={() => setActiveTab("progress")}
               onGoToCombined={() => setActiveTab("combined_report")}
               onGoToRoadmap={() => setActiveTab("roadmap")}
@@ -198,16 +232,21 @@ export default function App() {
           {activeTab === "combined_report" && (
             <CombinedReportView
               user={user}
+              attemptId={selectedAttemptId}
+              onClearAttemptId={() => setSelectedAttemptId(null)}
               onGoToRoadmap={() => setActiveTab("roadmap")}
-              onGoToRetest={() => setActiveTab("setup")}
-              onGoToDashboard={() => setActiveTab("dashboard")}
+              onGoToRetest={handleStartRetest}
+              onGoToDashboard={() => {
+                setSelectedAttemptId(null);
+                setActiveTab("dashboard");
+              }}
             />
           )}
 
           {activeTab === "roadmap" && (
             <RoadmapView
               user={user}
-              onGoToRetest={() => setActiveTab("setup")}
+              onGoToRetest={handleStartRetest}
               onGoToDashboard={() => setActiveTab("dashboard")}
             />
           )}
@@ -215,7 +254,7 @@ export default function App() {
           {activeTab === "progress" && (
             <ProgressView
               onViewReport={handleViewReport}
-              onStartNew={() => setActiveTab("setup")}
+              onStartNew={handleStartRetest}
               onGoToRoadmap={() => setActiveTab("roadmap")}
             />
           )}

@@ -531,5 +531,297 @@ CODING_PROBLEMS = [
         ],
         "time_complexity": "O(exp)",
         "space_complexity": "O(exp) call stack"
+    },
+    {
+        "id": 14,
+        "title": "Merge Sorted Lists",
+        "category": "Two Pointers",
+        "difficulty": "Intermediate",
+        "language": "python",
+        "description": (
+            "Write a function `merge_sorted(list1: list, list2: list) -> list` that merges two already sorted lists "
+            "into a single sorted list in non-decreasing order.\n\n"
+            "Do not just concatenate and call sort(); achieve O(n + m) time using two pointers."
+        ),
+        "starter_code": (
+            "def merge_sorted(list1: list, list2: list) -> list:\n"
+            "    # Your implementation here\n"
+            "    pass\n"
+        ),
+        "solution_code": (
+            "def merge_sorted(list1: list, list2: list) -> list:\n"
+            "    res = []\n"
+            "    i = j = 0\n"
+            "    while i < len(list1) and j < len(list2):\n"
+            "        if list1[i] <= list2[j]:\n"
+            "            res.append(list1[i])\n"
+            "            i += 1\n"
+            "        else:\n"
+            "            res.append(list2[j])\n"
+            "            j += 1\n"
+            "    res.extend(list1[i:])\n"
+            "    res.extend(list2[j:])\n"
+            "    return res\n"
+        ),
+        "test_cases": [
+            {"input": "[1, 3, 5], [2, 4, 6]", "expected_output": "[1, 2, 3, 4, 5, 6]", "is_hidden": False, "description": "Interleaved elements"},
+            {"input": "[], [1, 2]", "expected_output": "[1, 2]", "is_hidden": False, "description": "Empty first list"},
+            {"input": "[1, 2, 3], []", "expected_output": "[1, 2, 3]", "is_hidden": False, "description": "Empty second list"},
+            {"input": "[5, 10], [1, 2, 3, 4]", "expected_output": "[1, 2, 3, 4, 5, 10]", "is_hidden": True, "description": "Different lengths"},
+            {"input": "[], []", "expected_output": "[]", "is_hidden": True, "description": "Both empty"}
+        ],
+        "constraints": "0 <= len(list1), len(list2) <= 10^4",
+        "hints": [
+            "Maintain an index pointer for list1 and list2.",
+            "Compare elements at current pointers and append the smaller one.",
+            "Append remaining elements once one list is exhausted."
+        ],
+        "time_complexity": "O(n + m)",
+        "space_complexity": "O(n + m)"
+    },
+    {
+        "id": 15,
+        "title": "Longest Common Prefix",
+        "category": "Strings",
+        "difficulty": "Beginner",
+        "language": "python",
+        "description": (
+            "Write a function `longest_common_prefix(strs: list) -> str` to find the longest common prefix string "
+            "among an array of strings. If there is no common prefix, return an empty string `\"\"`."
+        ),
+        "starter_code": (
+            "def longest_common_prefix(strs: list) -> str:\n"
+            "    # Your implementation here\n"
+            "    pass\n"
+        ),
+        "solution_code": (
+            "def longest_common_prefix(strs: list) -> str:\n"
+            "    if not strs:\n"
+            "        return ''\n"
+            "    prefix = strs[0]\n"
+            "    for s in strs[1:]:\n"
+            "        while not s.startswith(prefix):\n"
+            "            prefix = prefix[:-1]\n"
+            "            if not prefix:\n"
+            "                return ''\n"
+            "    return prefix\n"
+        ),
+        "test_cases": [
+            {"input": "['flower', 'flow', 'flight']", "expected_output": "fl", "is_hidden": False, "description": "Common prefix 'fl'"},
+            {"input": "['dog', 'racecar', 'car']", "expected_output": "", "is_hidden": False, "description": "No common prefix"},
+            {"input": "['interstellar', 'internet', 'interval']", "expected_output": "inter", "is_hidden": True, "description": "Prefix 'inter'"},
+            {"input": "['a']", "expected_output": "a", "is_hidden": True, "description": "Single string"}
+        ],
+        "constraints": "1 <= strs.length <= 200, 0 <= strs[i].length <= 200",
+        "hints": [
+            "Start with the first word as candidate prefix.",
+            "Shorten the candidate prefix character by character until all words match."
+        ],
+        "time_complexity": "O(S) where S is sum of characters",
+        "space_complexity": "O(1)"
+    },
+    {
+        "id": 16,
+        "title": "Sum of Digits via Recursion",
+        "category": "Recursion",
+        "difficulty": "Beginner",
+        "language": "python",
+        "description": (
+            "Write a recursive function `sum_of_digits(n: int) -> int` that calculates the sum of all digits of non-negative integer `n`.\n\n"
+            "Requirements:\n"
+            "- Must be recursive.\n"
+            "- Example: `sum_of_digits(1234) = 1 + 2 + 3 + 4 = 10`.\n"
+            "- If n is 0, return 0."
+        ),
+        "starter_code": (
+            "def sum_of_digits(n: int) -> int:\n"
+            "    # Your recursive implementation here\n"
+            "    pass\n"
+        ),
+        "solution_code": (
+            "def sum_of_digits(n: int) -> int:\n"
+            "    if n < 0:\n"
+            "        raise ValueError('n must be non-negative')\n"
+            "    if n == 0:\n"
+            "        return 0\n"
+            "    return (n % 10) + sum_of_digits(n // 10)\n"
+        ),
+        "test_cases": [
+            {"input": "1234", "expected_output": "10", "is_hidden": False, "description": "1+2+3+4 = 10"},
+            {"input": "0", "expected_output": "0", "is_hidden": False, "description": "Zero digit"},
+            {"input": "9999", "expected_output": "36", "is_hidden": False, "description": "All 9s"},
+            {"input": "1005", "expected_output": "6", "is_hidden": True, "description": "With zeros in between"},
+            {"input": "-5", "expected_output": "ValueError", "is_hidden": True, "description": "Negative input"}
+        ],
+        "constraints": "0 <= n <= 10^9",
+        "hints": [
+            "Base case: if n == 0, return 0.",
+            "Recursive step: (n % 10) + sum_of_digits(n // 10)."
+        ],
+        "time_complexity": "O(log10(n))",
+        "space_complexity": "O(log10(n)) call stack"
+    },
+    {
+        "id": 17,
+        "title": "Find Missing Number in Array",
+        "category": "Searching",
+        "difficulty": "Beginner",
+        "language": "python",
+        "description": (
+            "Given an array `nums` containing `n` distinct numbers in the range `[0, n]`, return the only number "
+            "in the range that is missing from the array.\n\n"
+            "Function signature: `missing_number(nums: list) -> int`."
+        ),
+        "starter_code": (
+            "def missing_number(nums: list) -> int:\n"
+            "    # Your implementation here\n"
+            "    pass\n"
+        ),
+        "solution_code": (
+            "def missing_number(nums: list) -> int:\n"
+            "    n = len(nums)\n"
+            "    expected_sum = n * (n + 1) // 2\n"
+            "    return expected_sum - sum(nums)\n"
+        ),
+        "test_cases": [
+            {"input": "[3, 0, 1]", "expected_output": "2", "is_hidden": False, "description": "n=3, missing 2"},
+            {"input": "[0, 1]", "expected_output": "2", "is_hidden": False, "description": "n=2, missing 2"},
+            {"input": "[9,6,4,2,3,5,7,0,1]", "expected_output": "8", "is_hidden": False, "description": "n=9, missing 8"},
+            {"input": "[0]", "expected_output": "1", "is_hidden": True, "description": "n=1, missing 1"},
+            {"input": "[1]", "expected_output": "0", "is_hidden": True, "description": "n=1, missing 0"}
+        ],
+        "constraints": "n == nums.length, 1 <= n <= 10^4",
+        "hints": [
+            "The sum of numbers from 0 to n is given by n * (n + 1) // 2.",
+            "Subtract the actual sum of nums from this expected sum."
+        ],
+        "time_complexity": "O(n)",
+        "space_complexity": "O(1)"
+    },
+    {
+        "id": 18,
+        "title": "Single Number (XOR Unique Element)",
+        "category": "Algorithms",
+        "difficulty": "Beginner",
+        "language": "python",
+        "description": (
+            "Given a non-empty array of integers `nums`, every element appears twice except for one. "
+            "Find that single element.\n\n"
+            "Function signature: `single_number(nums: list) -> int`.\n"
+            "Implement a solution with linear runtime complexity and use only constant extra space."
+        ),
+        "starter_code": (
+            "def single_number(nums: list) -> int:\n"
+            "    # Your implementation here\n"
+            "    pass\n"
+        ),
+        "solution_code": (
+            "def single_number(nums: list) -> int:\n"
+            "    res = 0\n"
+            "    for x in nums:\n"
+            "        res ^= x\n"
+            "    return res\n"
+        ),
+        "test_cases": [
+            {"input": "[2, 2, 1]", "expected_output": "1", "is_hidden": False, "description": "Single element 1"},
+            {"input": "[4, 1, 2, 1, 2]", "expected_output": "4", "is_hidden": False, "description": "Single element 4"},
+            {"input": "[1]", "expected_output": "1", "is_hidden": False, "description": "Length 1"},
+            {"input": "[-1, -1, -2]", "expected_output": "-2", "is_hidden": True, "description": "Negative numbers"},
+            {"input": "[10, 20, 30, 20, 10]", "expected_output": "30", "is_hidden": True, "description": "Single 30"}
+        ],
+        "constraints": "1 <= nums.length <= 3 * 10^4",
+        "hints": [
+            "XORing a number with itself results in 0: a ^ a = 0.",
+            "XORing a number with 0 results in the number: a ^ 0 = a.",
+            "Accumulate XOR across all numbers."
+        ],
+        "time_complexity": "O(n)",
+        "space_complexity": "O(1)"
+    },
+    {
+        "id": 19,
+        "title": "Move Zeroes to End",
+        "category": "Two Pointers",
+        "difficulty": "Beginner",
+        "language": "python",
+        "description": (
+            "Given an integer array `nums`, move all `0`s to the end of it while maintaining the relative order "
+            "of the non-zero elements.\n\n"
+            "Function signature: `move_zeroes(nums: list) -> list`.\n"
+            "Return the transformed list."
+        ),
+        "starter_code": (
+            "def move_zeroes(nums: list) -> list:\n"
+            "    # Your implementation here\n"
+            "    pass\n"
+        ),
+        "solution_code": (
+            "def move_zeroes(nums: list) -> list:\n"
+            "    arr = list(nums)\n"
+            "    pos = 0\n"
+            "    for x in arr:\n"
+            "        if x != 0:\n"
+            "            arr[pos] = x\n"
+            "            pos += 1\n"
+            "    while pos < len(arr):\n"
+            "        arr[pos] = 0\n"
+            "        pos += 1\n"
+            "    return arr\n"
+        ),
+        "test_cases": [
+            {"input": "[0, 1, 0, 3, 12]", "expected_output": "[1, 3, 12, 0, 0]", "is_hidden": False, "description": "Standard zeros moved"},
+            {"input": "[0]", "expected_output": "[0]", "is_hidden": False, "description": "Single zero"},
+            {"input": "[1, 2, 3]", "expected_output": "[1, 2, 3]", "is_hidden": False, "description": "No zeros"},
+            {"input": "[0, 0, 1]", "expected_output": "[1, 0, 0]", "is_hidden": True, "description": "Leading zeros"}
+        ],
+        "constraints": "1 <= nums.length <= 10^4",
+        "hints": [
+            "Use a pointer to track where the next non-zero should be placed.",
+            "Fill remaining indices with zeros."
+        ],
+        "time_complexity": "O(n)",
+        "space_complexity": "O(n)"
+    },
+    {
+        "id": 20,
+        "title": "Roman to Integer Converter",
+        "category": "Hash Map",
+        "difficulty": "Intermediate",
+        "language": "python",
+        "description": (
+            "Roman numerals are represented by seven symbols: I (1), V (5), X (10), L (50), C (100), D (500), M (1000).\n"
+            "Write `roman_to_int(s: str) -> int` to convert a roman numeral string to an integer.\n\n"
+            "Remember subtractive notation: IV = 4, IX = 9, XL = 40, XC = 90, CD = 400, CM = 900."
+        ),
+        "starter_code": (
+            "def roman_to_int(s: str) -> int:\n"
+            "    # Your implementation here\n"
+            "    pass\n"
+        ),
+        "solution_code": (
+            "def roman_to_int(s: str) -> int:\n"
+            "    vals = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000}\n"
+            "    total = 0\n"
+            "    for i in range(len(s)):\n"
+            "        if i + 1 < len(s) and vals[s[i]] < vals[s[i + 1]]:\n"
+            "            total -= vals[s[i]]\n"
+            "        else:\n"
+            "            total += vals[s[i]]\n"
+            "    return total\n"
+        ),
+        "test_cases": [
+            {"input": "'III'", "expected_output": "3", "is_hidden": False, "description": "III = 3"},
+            {"input": "'LVIII'", "expected_output": "58", "is_hidden": False, "description": "L = 50, V = 5, III = 3"},
+            {"input": "'MCMXCIV'", "expected_output": "1994", "is_hidden": False, "description": "M=1000, CM=900, XC=90, IV=4"},
+            {"input": "'IX'", "expected_output": "9", "is_hidden": True, "description": "IX = 9"},
+            {"input": "'XL'", "expected_output": "40", "is_hidden": True, "description": "XL = 40"}
+        ],
+        "constraints": "1 <= s.length <= 15, valid Roman numeral in range [1, 3999]",
+        "hints": [
+            "If current symbol value is less than next symbol value, subtract it.",
+            "Otherwise, add it."
+        ],
+        "time_complexity": "O(n)",
+        "space_complexity": "O(1)"
     }
 ]

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List, Optional
 import json
+from datetime import datetime
 from ..database import get_db_connection
 from ..models import (
     InterviewCreate, InterviewSummary, QuestionResponse, AnswerSubmit,
@@ -11,19 +12,57 @@ from ..auth import get_current_user
 from ..services.interview_engine import InterviewEngine
 from ..services.learning_engine import LearningEngine
 from ..services.llm_service import LLMService
+from ..services.attempt_service import AttemptService, _calc_remaining_seconds
+from ..config import (
+    INTERVIEW_TIME_LIMIT_SECONDS,
+    INTERVIEW_QUESTION_TIME_LIMIT_SECONDS,
+    DEADLINE_GRACE_PERIOD_SECONDS
+)
 
 router = APIRouter(tags=["Interviews"])
 
 @router.post("/interviews", response_model=InterviewSummary)
 def create_interview(data: InterviewCreate, current_user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Enforce strict assessment order (Aptitude -> Coding -> Interview)
+        AttemptService.check_stage_access(cursor, current_user["id"], target_stage="interview")
+        active_att = AttemptService.get_or_create_active_attempt(cursor, current_user["id"])
+        attempt_id = active_att.get("attempt_id")
+        conn.commit()
+    finally:
+        conn.close()
+
     interview = InterviewEngine.create_interview(
         user_id=current_user["id"],
         domain_id=data.domain_id,
         difficulty=data.difficulty,
         interview_type=data.interview_type,
         total_questions=data.total_questions,
-        topic_id=data.topic_id
+        topic_id=data.topic_id,
+        attempt_id=attempt_id
     )
+
+    # Start interview session timer
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        AttemptService.start_interview_session(
+            cursor=cursor,
+            user_id=current_user["id"],
+            attempt_id=attempt_id,
+            interview_id=interview["id"],
+            duration_seconds=INTERVIEW_TIME_LIMIT_SECONDS
+        )
+        # Re-fetch interview with updated deadline
+        cursor.execute("SELECT * FROM interviews WHERE id = ?", (interview["id"],))
+        iv_row = dict(cursor.fetchone())
+        conn.commit()
+    finally:
+        conn.close()
+
+    rem_seconds = _calc_remaining_seconds(iv_row.get("deadline"), INTERVIEW_TIME_LIMIT_SECONDS)
 
     return {
         "id": interview["id"],
@@ -41,8 +80,14 @@ def create_interview(data: InterviewCreate, current_user: dict = Depends(get_cur
         "status": interview["status"],
         "pressure_mode_active": bool(interview["pressure_mode_active"]),
         "pressure_topic_name": None,
-        "started_at": str(interview["started_at"]),
-        "completed_at": str(interview["completed_at"]) if interview.get("completed_at") else None
+        "started_at": str(iv_row.get("started_at") or interview["started_at"]),
+        "completed_at": str(iv_row.get("completed_at")) if iv_row.get("completed_at") else None,
+        "deadline": str(iv_row.get("deadline")) if iv_row.get("deadline") else None,
+        "duration_seconds": iv_row.get("duration_seconds") or INTERVIEW_TIME_LIMIT_SECONDS,
+        "remaining_seconds": rem_seconds,
+        "is_timeout": bool(iv_row.get("is_timeout")),
+        "completion_reason": iv_row.get("completion_reason") or "normal",
+        "question_time_limit_seconds": INTERVIEW_QUESTION_TIME_LIMIT_SECONDS
     }
 
 @router.get("/interviews", response_model=List[InterviewSummary])
@@ -66,6 +111,9 @@ def list_interviews(current_user: dict = Depends(get_current_user)):
 
     result = []
     for r in rows:
+        rem_sec = None
+        if r["status"] == "in_progress" and r["deadline"]:
+            rem_sec = _calc_remaining_seconds(r["deadline"], r["duration_seconds"] or INTERVIEW_TIME_LIMIT_SECONDS)
         result.append({
             "id": r["id"],
             "user_id": r["user_id"],
@@ -83,7 +131,13 @@ def list_interviews(current_user: dict = Depends(get_current_user)):
             "pressure_mode_active": bool(r["pressure_mode_active"]),
             "pressure_topic_name": r["pressure_topic_name"],
             "started_at": str(r["started_at"]),
-            "completed_at": str(r["completed_at"]) if r["completed_at"] else None
+            "completed_at": str(r["completed_at"]) if r["completed_at"] else None,
+            "deadline": str(r["deadline"]) if r["deadline"] else None,
+            "duration_seconds": r["duration_seconds"] or INTERVIEW_TIME_LIMIT_SECONDS,
+            "remaining_seconds": rem_sec,
+            "is_timeout": bool(r["is_timeout"]),
+            "completion_reason": r["completion_reason"] or "normal",
+            "question_time_limit_seconds": INTERVIEW_QUESTION_TIME_LIMIT_SECONDS
         })
     return result
 
@@ -103,14 +157,27 @@ def get_interview(interview_id: int, current_user: dict = Depends(get_current_us
         WHERE i.id = ?
     """, (interview_id,))
     r = cursor.fetchone()
-    conn.close()
 
     if not r:
+        conn.close()
         raise HTTPException(status_code=404, detail="Interview not found.")
     
     # Candidate can only view their own unless admin
     if current_user["role"] != "admin" and r["user_id"] != current_user["id"]:
+        conn.close()
         raise HTTPException(status_code=403, detail="Forbidden")
+
+    rem_sec = None
+    if r["status"] == "in_progress" and r["deadline"]:
+        rem_sec = _calc_remaining_seconds(r["deadline"], r["duration_seconds"] or INTERVIEW_TIME_LIMIT_SECONDS)
+        # Check if deadline passed
+        if rem_sec <= 0:
+            InterviewEngine.finalize_timeout_interview(interview_id, conn)
+            cursor.execute("SELECT * FROM interviews WHERE id = ?", (interview_id,))
+            r = cursor.fetchone()
+            rem_sec = 0
+
+    conn.close()
 
     return {
         "id": r["id"],
@@ -129,7 +196,13 @@ def get_interview(interview_id: int, current_user: dict = Depends(get_current_us
         "pressure_mode_active": bool(r["pressure_mode_active"]),
         "pressure_topic_name": r["pressure_topic_name"],
         "started_at": str(r["started_at"]),
-        "completed_at": str(r["completed_at"]) if r["completed_at"] else None
+        "completed_at": str(r["completed_at"]) if r["completed_at"] else None,
+        "deadline": str(r["deadline"]) if r["deadline"] else None,
+        "duration_seconds": r["duration_seconds"] or INTERVIEW_TIME_LIMIT_SECONDS,
+        "remaining_seconds": rem_sec,
+        "is_timeout": bool(r["is_timeout"]),
+        "completion_reason": r["completion_reason"] or "normal",
+        "question_time_limit_seconds": INTERVIEW_QUESTION_TIME_LIMIT_SECONDS
     }
 
 @router.post("/interviews/{interview_id}/questions", response_model=Optional[QuestionResponse])
@@ -137,22 +210,73 @@ def get_interview(interview_id: int, current_user: dict = Depends(get_current_us
 def get_next_question(interview_id: int, current_user: dict = Depends(get_current_user)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT user_id, status FROM interviews WHERE id = ?", (interview_id,))
-    row = cursor.fetchone()
-    conn.close()
+    timeout_triggered = False
+    try:
+        cursor.execute("SELECT user_id, status, deadline, attempt_id, duration_seconds FROM interviews WHERE id = ?", (interview_id,))
+        row = cursor.fetchone()
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Interview not found.")
-    if current_user["role"] != "admin" and row["user_id"] != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        if not row:
+            raise HTTPException(status_code=404, detail="Interview not found.")
+        if current_user["role"] != "admin" and row["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Check stage access
+        AttemptService.check_stage_access(cursor, current_user["id"], target_stage="interview", attempt_id=row["attempt_id"])
+
+        # Deadline validation
+        if row["deadline"] and row["status"] == "in_progress":
+            rem = _calc_remaining_seconds(row["deadline"], row["duration_seconds"] or INTERVIEW_TIME_LIMIT_SECONDS)
+            if rem <= 0:
+                InterviewEngine.finalize_timeout_interview(interview_id, conn)
+                timeout_triggered = True
+    finally:
+        conn.close()
+
+    if timeout_triggered:
+        return None
 
     q = InterviewEngine.get_next_question(interview_id)
     return q
 
 @router.post("/questions/{question_id}/answer", response_model=AnswerEvaluationResponse)
 def submit_answer(question_id: int, answer: AnswerSubmit, current_user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
     try:
-        res = InterviewEngine.submit_answer(question_id, answer.answer_text, answer.code_answer)
+        cursor.execute("""
+            SELECT i.id as interview_id, i.user_id, i.status, i.deadline, i.attempt_id, i.duration_seconds
+            FROM questions q
+            JOIN interviews i ON q.interview_id = i.id
+            WHERE q.id = ?
+        """, (question_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Question not found")
+        if current_user["role"] != "admin" and row["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Check stage access
+        AttemptService.check_stage_access(cursor, current_user["id"], target_stage="interview", attempt_id=row["attempt_id"])
+
+        # Deadline validation
+        if row["deadline"] and row["status"] == "in_progress":
+            rem = _calc_remaining_seconds(row["deadline"], row["duration_seconds"] or INTERVIEW_TIME_LIMIT_SECONDS)
+            if rem <= -DEADLINE_GRACE_PERIOD_SECONDS:
+                InterviewEngine.finalize_timeout_interview(row["interview_id"], conn)
+                raise HTTPException(
+                    status_code=400,
+                    detail="Interview deadline has expired. Submissions are closed."
+                )
+    finally:
+        conn.close()
+
+    try:
+        res = InterviewEngine.submit_answer(
+            question_id=question_id,
+            answer_text=answer.answer_text,
+            code_answer=answer.code_answer,
+            time_spent_seconds=answer.time_spent_seconds or 0
+        )
         return res
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

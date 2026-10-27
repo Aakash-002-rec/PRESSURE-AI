@@ -6,11 +6,19 @@ import {
 } from "lucide-react";
 import { api } from "../api";
 
-export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpenAuth }) {
+export default function AptitudeView({ 
+  user, 
+  onGoToCoding, 
+  onGoToPractice, 
+  onGoToDashboard, 
+  onStartRetest, 
+  onOpenAuth 
+}) {
   // Test configuration state
   const [inTest, setInTest] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   // Setup options
   const [category, setCategory] = useState("All");
@@ -22,6 +30,8 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({}); // questionId -> selectedOption (0-3)
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [remainingSeconds, setRemainingSeconds] = useState(900);
+  const [attemptId, setAttemptId] = useState(null);
 
   const [showIncompleteModal, setShowIncompleteModal] = useState(false);
   const [autoFilling, setAutoFilling] = useState(false);
@@ -29,10 +39,49 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
 
   const timerRef = useRef(null);
 
+  // Check active session on load
+  useEffect(() => {
+    if (user) {
+      checkExistingSession();
+    }
+  }, [user]);
+
+  async function checkExistingSession() {
+    try {
+      const sess = await api.aptitude.getSession();
+      if (sess && sess.in_test && sess.questions?.length > 0) {
+        setQuestions(sess.questions);
+        setAttemptId(sess.attempt_id);
+        setInTest(true);
+        if (sess.current_answers) {
+          const parsed = {};
+          Object.entries(sess.current_answers).forEach(([k, v]) => {
+            parsed[Number(k)] = v;
+          });
+          setAnswers(parsed);
+        }
+        if (sess.remaining_seconds !== undefined) {
+          setRemainingSeconds(sess.remaining_seconds);
+        }
+      } else if (sess && sess.completed && sess.latest_result) {
+        setTestResult(sess.latest_result);
+      }
+    } catch (err) {
+      console.warn("Could not check active aptitude session:", err);
+    }
+  }
+
   useEffect(() => {
     if (inTest) {
       timerRef.current = setInterval(() => {
         setElapsedSeconds((prev) => prev + 1);
+        setRemainingSeconds((prev) => {
+          if (prev <= 1) {
+            handleTimeoutSubmit();
+            return 0;
+          }
+          return prev - 1;
+        });
       }, 1000);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -40,7 +89,12 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [inTest]);
+  }, [inTest, questions, answers]);
+
+  async function handleTimeoutSubmit() {
+    if (timerRef.current) clearInterval(timerRef.current);
+    await handleSubmitTest(true);
+  }
 
   async function startTest() {
     if (!user) {
@@ -57,22 +111,25 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
     setAnswers({});
     setCurrentIndex(0);
     setElapsedSeconds(0);
+    setRemainingSeconds(900);
     setShowIncompleteModal(false);
 
     try {
-      const qList = await api.aptitude.getQuestions({
+      const sess = await api.aptitude.start({
         category: category === "All" ? "" : category,
         difficulty: difficulty === "All" ? "" : difficulty,
-        limit: numQuestions,
+        total_questions: numQuestions,
       });
 
-      if (!qList || qList.length === 0) {
+      if (!sess?.questions || sess.questions.length === 0) {
         alert("No questions found for the selected filter. Try selecting 'All Categories'.");
         setLoading(false);
         return;
       }
 
-      setQuestions(qList);
+      setQuestions(sess.questions);
+      setAttemptId(sess.attempt_id);
+      if (sess.remaining_seconds) setRemainingSeconds(sess.remaining_seconds);
       setInTest(true);
     } catch (err) {
       alert("Failed to start aptitude test: " + err.message);
@@ -82,14 +139,26 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
   }
 
   function handleSelectOption(qId, optIdx) {
-    setAnswers((prev) => ({
-      ...prev,
-      [qId]: optIdx,
-    }));
+    const cleanQId = Number(qId);
+    const cleanOptIdx = Number(optIdx);
+    if (isNaN(cleanQId) || isNaN(cleanOptIdx)) return;
+
+    setAnswers((prev) => {
+      const updated = {
+        ...prev,
+        [cleanQId]: cleanOptIdx,
+      };
+      // Persist draft progress asynchronously to DB
+      api.aptitude.saveProgress({
+        answers: updated,
+        elapsed_seconds: Number(elapsedSeconds) + 1
+      }).catch((e) => console.warn("Failed to autosave draft answers:", e));
+      return updated;
+    });
   }
 
   function jumpToNextUnanswered() {
-    const nextIdx = questions.findIndex((q) => answers[q.id] === undefined);
+    const nextIdx = questions.findIndex((q) => answers[Number(q.id)] === undefined);
     if (nextIdx !== -1) {
       setCurrentIndex(nextIdx);
     }
@@ -100,29 +169,40 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
     if (autoFilling || !questions.length) return;
     setAutoFilling(true);
     try {
-      const qIds = questions.map((q) => q.id);
+      const qIds = questions.map((q) => Number(q.id));
       const res = await api.aptitude.getSolutions(qIds);
       const solutions = res?.solutions || {};
 
       const newAnswers = { ...answers };
       questions.forEach((q) => {
-        if (solutions[q.id] && solutions[q.id].correct_answer !== undefined) {
-          newAnswers[q.id] = solutions[q.id].correct_answer;
+        const qid = Number(q.id);
+        if (solutions[qid] && solutions[qid].correct_answer !== undefined) {
+          newAnswers[qid] = Number(solutions[qid].correct_answer);
         } else if (q.correct_answer !== undefined) {
-          newAnswers[q.id] = q.correct_answer;
+          newAnswers[qid] = Number(q.correct_answer);
         } else {
-          newAnswers[q.id] = 0;
+          newAnswers[qid] = 0;
         }
       });
       setAnswers(newAnswers);
       setShowIncompleteModal(false);
       setAutoFillNotification(`⚡ Auto-filled all ${questions.length} questions with 100% verified correct answers!`);
       setTimeout(() => setAutoFillNotification(""), 4500);
+
+      api.aptitude.saveProgress({
+        answers: newAnswers,
+        elapsed_seconds: Number(elapsedSeconds) + 1
+      }).catch((e) => console.warn("Failed to autosave auto-filled answers:", e));
     } catch (err) {
       console.error("Auto-fill error:", err);
       const newAnswers = { ...answers };
       questions.forEach((q) => {
-        if (q.correct_answer !== undefined) newAnswers[q.id] = q.correct_answer;
+        const qid = Number(q.id);
+        if (q.correct_answer !== undefined) {
+          newAnswers[qid] = Number(q.correct_answer);
+        } else {
+          newAnswers[qid] = 0;
+        }
       });
       setAnswers(newAnswers);
       setShowIncompleteModal(false);
@@ -131,29 +211,43 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
     }
   }
 
-  async function handleSubmitTest() {
+  async function handleSubmitTest(isAutoTimeout = false) {
+    if (loading || submitting) return;
+
+    // Strict boolean check prevents React synthetic events or DOM elements from being treated as truthy flags
+    const autoTimeoutFlag = isAutoTimeout === true;
+
     const answeredCount = Object.keys(answers).length;
-    if (answeredCount < questions.length) {
+    if (!autoTimeoutFlag && answeredCount < questions.length) {
       setShowIncompleteModal(true);
       return;
     }
 
     if (timerRef.current) clearInterval(timerRef.current);
+    setSubmitting(true);
     setLoading(true);
 
-    const formattedAnswers = questions.map((q) => ({
-      question_id: q.id,
-      selected_option: answers[q.id] !== undefined ? answers[q.id] : null,
-    }));
+    const formattedAnswers = questions.map((q) => {
+      const qid = Number(q.id);
+      const rawOpt = answers[qid];
+      const hasValidOpt = typeof rawOpt === "number" && !isNaN(rawOpt);
+      return {
+        question_id: qid,
+        selected_option: hasValidOpt ? rawOpt : null,
+      };
+    });
+
+    const payload = {
+      category: typeof category === "string" ? category : "All",
+      difficulty: typeof difficulty === "string" ? difficulty : "Intermediate",
+      total_questions: Number(questions.length),
+      time_taken_seconds: Number(elapsedSeconds) || 0,
+      answers: formattedAnswers,
+      is_timeout: autoTimeoutFlag,
+    };
 
     try {
-      const result = await api.aptitude.submit({
-        category,
-        difficulty,
-        total_questions: questions.length,
-        time_taken_seconds: elapsedSeconds,
-        answers: formattedAnswers,
-      });
+      const result = await api.aptitude.submit(payload);
 
       localStorage.setItem("pressure_ai_aptitude_completed", "true");
       setTestResult(result);
@@ -162,6 +256,7 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
       alert("Submission error: " + err.message);
     } finally {
       setLoading(false);
+      setSubmitting(false);
     }
   }
 
@@ -352,20 +447,38 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
             </div>
           </div>
 
-        {/* Super Emoji Time Clocker (Short & Attractive Widget) */}
-          <div className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-slate-900/95 via-blue-950/50 to-slate-900/95 border border-blue-500/50 shadow-md shadow-blue-500/15 backdrop-blur-md">
-            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-blue-500/20 border border-blue-500/30 text-base shadow-[0_0_10px_rgba(59,130,246,0.3)] select-none animate-pulse">
-              ⏱️
+          {/* Visible Server-Validated Countdown Timer */}
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border shadow-md backdrop-blur-md ${
+              remainingSeconds <= 120 
+                ? "bg-red-950/80 border-red-500/80 text-red-300 shadow-red-500/20 animate-pulse" 
+                : "bg-gradient-to-r from-slate-900/95 via-blue-950/50 to-slate-900/95 border-blue-500/50 shadow-blue-500/15"
+            }`}>
+              <div className="flex items-center justify-center w-7 h-7 rounded-full bg-blue-500/20 border border-blue-500/30 text-base select-none">
+                ⏳
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400">Time Left</span>
+                <span className={`font-mono text-base md:text-lg font-black tracking-widest ${
+                  remainingSeconds <= 120 ? "text-red-400" : "text-white"
+                }`}>
+                  {formatTime(remainingSeconds)}
+                </span>
+              </div>
             </div>
-            <span className="timer-digits-blue font-mono text-lg md:text-xl font-black tracking-widest text-white">
-              {formatTime(elapsedSeconds)}
-            </span>
-            <span className="relative flex h-2 w-2 ml-0.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-            </span>
           </div>
         </div>
+
+        {/* Low-Time Warning Alert Banner */}
+        {remainingSeconds <= 120 && remainingSeconds > 0 && (
+          <div className="p-3 bg-red-950/50 border border-red-500/50 rounded-2xl flex items-center justify-between text-xs text-red-300 animate-pulse">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <span><strong>Warning:</strong> Less than 2 minutes remaining! Answers will be submitted automatically when the countdown expires.</span>
+            </div>
+            <span className="font-mono font-bold text-red-400">{formatTime(remainingSeconds)}</span>
+          </div>
+        )}
 
         {/* Auto-Fill Confirmation Notification */}
         {autoFillNotification && (
@@ -438,15 +551,19 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
               ) : null}
 
               <button
-                onClick={handleSubmitTest}
-                disabled={loading}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleSubmitTest(false);
+                }}
+                disabled={loading || submitting}
                 className={`px-6 py-2.5 font-extrabold text-xs rounded-xl shadow-lg flex items-center gap-1.5 transition-all ${
                   answeredCount === questions.length
                     ? "bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-white shadow-emerald-500/30 hover:scale-105 ring-2 ring-emerald-400"
                     : "bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700"
-                }`}
+                } ${loading || submitting ? "opacity-60 cursor-not-allowed" : ""}`}
               >
-                {loading ? (
+                {loading || submitting ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 ) : answeredCount === questions.length ? (
                   <CheckCircle2 className="w-3.5 h-3.5 text-white" />
@@ -454,7 +571,9 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
                   <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
                 )}
                 <span>
-                  {answeredCount === questions.length
+                  {loading || submitting
+                    ? "Submitting & Evaluating Answers..."
+                    : answeredCount === questions.length
                     ? `Submit All ${questions.length} Questions & Unlock Coding →`
                     : `Submit Test (${answeredCount}/${questions.length} Answered)`}
                 </span>
@@ -570,6 +689,15 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
 
     return (
       <div className="max-w-4xl mx-auto px-4 py-8 animate-fade-in space-y-6">
+        {testResult.is_timeout && (
+          <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/40 flex items-center gap-3">
+            <Clock className="w-5 h-5 text-amber-400 shrink-0" />
+            <p className="text-xs text-amber-300">
+              <strong>Time limit expired:</strong> Your test answers were automatically submitted and finalized when the server-side countdown timer reached zero.
+            </p>
+          </div>
+        )}
+
         {/* Stage 1 Completion Banner */}
         <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3 text-center sm:text-left">
@@ -802,12 +930,16 @@ export default function AptitudeView({ user, onGoToCoding, onGoToPractice, onOpe
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-800">
             <button
               onClick={() => {
-                setTestResult(null);
-                setInTest(false);
+                if (onStartRetest) {
+                  onStartRetest();
+                } else {
+                  setTestResult(null);
+                  setInTest(false);
+                }
               }}
               className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-800 text-xs font-semibold text-slate-400 hover:text-white flex items-center justify-center gap-1.5"
             >
-              <RotateCcw className="w-3.5 h-3.5" /> Retake Aptitude Test
+              <RotateCcw className="w-3.5 h-3.5" /> Retake / Start Fresh Retest
             </button>
 
             <div className="flex items-center gap-3 w-full sm:w-auto">

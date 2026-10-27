@@ -4,13 +4,17 @@ from typing import List, Optional, Dict, Any
 import json
 import time
 import random
+from datetime import datetime, timezone
 from ..database import get_db_connection
 from ..models import (
-    AptitudeQuestionResponse, AptitudeTestSubmit, AptitudeResultResponse
+    AptitudeQuestionResponse, AptitudeTestSubmit, AptitudeResultResponse,
+    AptitudeSessionResponse, AptitudeSaveProgressRequest, AptitudeStartRequest
 )
 from ..auth import get_current_user
 from ..services.llm_service import LLMService, gemini_model, _gemini_quota_exhausted, _gemini_quota_exhausted_until
 from ..services.cross_module_engine import CrossModuleEngine
+from ..services.attempt_service import AttemptService, _parse_ts
+from ..config import APTITUDE_TIME_LIMIT_SECONDS, DEADLINE_GRACE_PERIOD_SECONDS
 
 router = APIRouter(prefix="/aptitude", tags=["Aptitude"])
 
@@ -35,52 +39,37 @@ def normalize_category_name(cat: Optional[str]) -> Optional[str]:
         return "Data Interpretation"
     return cat.strip()
 
-@router.get("/questions", response_model=List[AptitudeQuestionResponse])
-def get_aptitude_questions(
-    category: Optional[str] = Query(None),
-    difficulty: Optional[str] = Query(None),
-    limit: int = Query(10, ge=5, le=30),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Fetches dynamic aptitude questions.
-    Uses Gemini when available to dynamically generate questions tailored to candidate difficulty and weakness.
-    Seamlessly falls back to the curated question bank if Gemini is unavailable or rate-limited.
-    Guarantees session-aware variation: tracks questions served to this user in recent sessions,
-    avoids duplicates within the session, and preserves authoritative objective answer keys.
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
 
-    user_id = current_user["id"]
-
-    # 1. Fetch questions candidate has seen or answered recently
+def _fetch_unique_aptitude_questions(cursor, user_id: int, category: Optional[str] = None, difficulty: Optional[str] = None, limit: int = 10, attempt_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Selects or dynamically generates aptitude questions for this user and attempt,
+    thoroughly excluding questions previously served or answered across previous attempts.
+    """
+    # 1. Fetch ALL questions candidate has seen or answered across all attempts
     cursor.execute("""
-        SELECT question_id FROM user_served_questions
-        WHERE user_id = ? AND module = 'aptitude'
-        ORDER BY id DESC LIMIT 100
+        SELECT DISTINCT question_id FROM user_served_questions
+        WHERE user_id = ? AND module = 'aptitude' AND question_id IS NOT NULL
     """, (user_id,))
     served_ids = [r[0] for r in cursor.fetchall()]
 
     cursor.execute("""
-        SELECT aa.question_id 
+        SELECT DISTINCT aa.question_id 
         FROM aptitude_answers aa
         JOIN aptitude_attempts at ON aa.attempt_id = at.id
-        WHERE at.user_id = ?
-        ORDER BY aa.id DESC LIMIT 100
+        WHERE at.user_id = ? AND aa.question_id IS NOT NULL
     """, (user_id,))
     answered_ids = [r[0] for r in cursor.fetchall()]
 
-    recent_q_ids = list(dict.fromkeys(served_ids + answered_ids))
+    all_seen_ids = list(dict.fromkeys(served_ids + answered_ids))
 
-    # Retrieve texts of recently seen questions to exclude in prompt
+    # Retrieve texts of recently seen questions to exclude in Gemini prompt
     recent_q_texts = []
-    if recent_q_ids:
-        placeholders = ",".join("?" for _ in recent_q_ids[:20])
-        cursor.execute(f"SELECT question FROM aptitude_questions WHERE id IN ({placeholders})", tuple(recent_q_ids[:20]))
+    if all_seen_ids:
+        placeholders = ",".join("?" for _ in all_seen_ids[:30])
+        cursor.execute(f"SELECT question FROM aptitude_questions WHERE id IN ({placeholders})", tuple(all_seen_ids[:30]))
         recent_q_texts = [r["question"] for r in cursor.fetchall()]
 
-    # 2. Check candidate skill state & weak areas for personalization (Requirement 7)
+    # 2. Check candidate skill state & weak areas for personalization
     candidate_profile = CrossModuleEngine.get_candidate_profile(user_id)
     apt_categories_perf = candidate_profile.get("aptitude_categories", {})
     weak_cats = [c for c, sc in apt_categories_perf.items() if sc < 60.0]
@@ -89,7 +78,6 @@ def get_aptitude_questions(
 
     # 3. Determine category distribution
     if not normalized_cat:
-        # Multi-category balanced test
         base_per_cat = limit // len(ALL_CATEGORIES)
         remainder = limit % len(ALL_CATEGORIES)
         cat_targets = {}
@@ -106,7 +94,6 @@ def get_aptitude_questions(
     for cat_name, cat_count in cat_targets.items():
         needed_for_cat = cat_count
 
-        # Target difficulty adaptation
         target_diff = difficulty if (difficulty and difficulty != "All") else None
         if not target_diff:
             cat_score = apt_categories_perf.get(cat_name, 70.0)
@@ -117,7 +104,6 @@ def get_aptitude_questions(
             else:
                 target_diff = "Intermediate"
 
-        # Try Gemini dynamic generation if available and not on quota cooldown
         is_gemini_active = (
             gemini_model is not None 
             and not (_gemini_quota_exhausted and time.time() < _gemini_quota_exhausted_until)
@@ -135,7 +121,6 @@ def get_aptitude_questions(
                         exclude_questions=session_texts + recent_q_texts
                     )
                     if gen_q and gen_q.get("question") not in session_texts:
-                        # Authoritative validation and persistence into DB
                         cursor.execute("""
                             INSERT INTO aptitude_questions (
                                 category, topic, difficulty, question, options, correct_answer, explanation
@@ -151,10 +136,9 @@ def get_aptitude_questions(
                         ))
                         new_q_id = cursor.lastrowid
                         cursor.execute("""
-                            INSERT INTO user_served_questions (user_id, module, question_id)
-                            VALUES (?, 'aptitude', ?)
-                        """, (user_id, new_q_id))
-                        conn.commit()
+                            INSERT INTO user_served_questions (user_id, module, question_id, attempt_id)
+                            VALUES (?, 'aptitude', ?, ?)
+                        """, (user_id, new_q_id, attempt_id))
 
                         session_ids.append(new_q_id)
                         session_texts.append(gen_q["question"])
@@ -167,9 +151,8 @@ def get_aptitude_questions(
                             "options": gen_q["options"]
                         })
                 except Exception:
-                    break  # If Gemini fails mid-batch, break to fallback bank
+                    break
 
-        # 5. If needed questions remain for this category (Gemini unavailable or quota), use question bank fallback
         still_needed = cat_count - sum(1 for q in selected_questions if q["category"] == cat_name or (cat_name == "Verbal Reasoning" and q["category"] in ["Verbal Reasoning", "Verbal Ability"]))
         if still_needed > 0:
             cat_filters = [cat_name]
@@ -184,8 +167,8 @@ def get_aptitude_questions(
                 base_q += " AND difficulty = ?"
                 params.append(target_diff)
 
-            # Avoid recently seen questions and avoid questions already in this session
-            all_exclude = list(dict.fromkeys(recent_q_ids + session_ids))
+            # Strictly exclude all questions previously seen by this user across past attempts
+            all_exclude = list(dict.fromkeys(all_seen_ids + session_ids))
             if all_exclude:
                 excl_ph = ",".join("?" for _ in all_exclude)
                 unseen_q = base_q + f" AND id NOT IN ({excl_ph}) ORDER BY RANDOM() LIMIT ?"
@@ -198,9 +181,9 @@ def get_aptitude_questions(
                 session_ids.append(r["id"])
                 session_texts.append(r["question"])
                 cursor.execute("""
-                    INSERT INTO user_served_questions (user_id, module, question_id)
-                    VALUES (?, 'aptitude', ?)
-                """, (user_id, r["id"]))
+                    INSERT INTO user_served_questions (user_id, module, question_id, attempt_id)
+                    VALUES (?, 'aptitude', ?, ?)
+                """, (user_id, r["id"], attempt_id))
                 selected_questions.append({
                     "id": r["id"],
                     "category": r["category"],
@@ -210,7 +193,7 @@ def get_aptitude_questions(
                     "options": json.loads(r["options"])
                 })
 
-            # If still short (e.g. exhausted unattempted questions in bank), pick least recent not in session
+            # If user has seen all questions in bank, fallback to least recently seen not in current session
             current_cat_count = sum(1 for q in selected_questions if q["category"] in cat_filters)
             if current_cat_count < cat_count:
                 extra_needed = cat_count - current_cat_count
@@ -224,9 +207,9 @@ def get_aptitude_questions(
                     session_ids.append(r["id"])
                     session_texts.append(r["question"])
                     cursor.execute("""
-                        INSERT INTO user_served_questions (user_id, module, question_id)
-                        VALUES (?, 'aptitude', ?)
-                    """, (user_id, r["id"]))
+                        INSERT INTO user_served_questions (user_id, module, question_id, attempt_id)
+                        VALUES (?, 'aptitude', ?, ?)
+                    """, (user_id, r["id"], attempt_id))
                     selected_questions.append({
                         "id": r["id"],
                         "category": r["category"],
@@ -236,12 +219,222 @@ def get_aptitude_questions(
                         "options": json.loads(r["options"])
                     })
 
+    random.shuffle(selected_questions)
+    return selected_questions[:limit]
+
+
+@router.get("/questions", response_model=List[AptitudeQuestionResponse])
+def get_aptitude_questions(
+    category: Optional[str] = Query(None),
+    difficulty: Optional[str] = Query(None),
+    limit: int = Query(10, ge=5, le=30),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Fetches dynamic aptitude questions, guaranteeing session-aware variation and
+    excluding questions seen by this user across previous attempts.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    user_id = current_user["id"]
+
+    active_att = AttemptService.get_or_create_active_attempt(cursor, user_id)
+    att_id = active_att.get("attempt_id")
+
+    questions = _fetch_unique_aptitude_questions(cursor, user_id, category, difficulty, limit, att_id)
+
+    conn.commit()
+    conn.close()
+    return questions
+
+
+@router.get("/session", response_model=AptitudeSessionResponse)
+def get_aptitude_session(current_user: dict = Depends(get_current_user)):
+    """
+    Retrieves the active in-progress Aptitude assessment session for the logged-in user.
+    Restores the exact remaining time, assigned questions, and draft answers upon page refresh.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    user_id = current_user["id"]
+
+    active_att = AttemptService.get_or_create_active_attempt(cursor, user_id)
+    conn.commit()
+
+    att_id = active_att["attempt_id"]
+    status = active_att.get("aptitude_status", "not_started")
+    in_test = (status == "in_progress")
+    completed = (status == "completed")
+
+    questions = []
+    q_ids_raw = active_att.get("aptitude_question_ids")
+    if q_ids_raw:
+        try:
+            q_ids = json.loads(q_ids_raw)
+            if q_ids:
+                ph = ",".join("?" for _ in q_ids)
+                cursor.execute(f"SELECT id, category, difficulty, question, options, topic FROM aptitude_questions WHERE id IN ({ph})", tuple(q_ids))
+                q_map = {r["id"]: r for r in cursor.fetchall()}
+                for qid in q_ids:
+                    if qid in q_map:
+                        r = q_map[qid]
+                        questions.append({
+                            "id": r["id"],
+                            "category": r["category"],
+                            "difficulty": r["difficulty"],
+                            "topic": r["topic"] if "topic" in r.keys() and r["topic"] else r["category"],
+                            "question": r["question"],
+                            "options": json.loads(r["options"]) if r["options"] else []
+                        })
+        except Exception:
+            questions = []
+
+    # Parse draft answers
+    draft_answers = {}
+    if active_att.get("aptitude_answers_draft"):
+        try:
+            draft_answers = json.loads(active_att["aptitude_answers_draft"])
+        except Exception:
+            draft_answers = {}
+
+    # Latest result if completed
+    latest_res = None
+    if completed:
+        cursor.execute("SELECT * FROM aptitude_attempts WHERE user_id = ? AND attempt_id = ? ORDER BY id DESC LIMIT 1", (user_id, att_id))
+        row = cursor.fetchone()
+        if not row:
+            cursor.execute("SELECT * FROM aptitude_attempts WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,))
+            row = cursor.fetchone()
+        if row:
+            ai_eval = None
+            if "ai_feedback" in row.keys() and row["ai_feedback"]:
+                try:
+                    ai_eval = json.loads(row["ai_feedback"])
+                except Exception:
+                    ai_eval = {"summary": str(row["ai_feedback"])}
+            latest_res = {
+                "attempt_id": row["id"],
+                "category": row["category"],
+                "difficulty": row["difficulty"],
+                "overall_score": row["score"],
+                "total_questions": row["total_questions"],
+                "correct_count": row["correct_count"],
+                "incorrect_count": row["incorrect_count"],
+                "time_taken_seconds": row["time_taken_seconds"],
+                "category_performance": json.loads(row["category_breakdown"]) if row["category_breakdown"] else {},
+                "weak_categories": json.loads(row["weak_categories"]) if row["weak_categories"] else [],
+                "ai_evaluation": ai_eval,
+                "is_timeout": bool(row["is_timeout"]) if "is_timeout" in row.keys() else False,
+                "created_at": str(row["created_at"])
+            }
+
+    conn.close()
+
+    rem_seconds = active_att.get("aptitude_remaining_seconds", APTITUDE_TIME_LIMIT_SECONDS)
+
+    return AptitudeSessionResponse(
+        attempt_id=att_id,
+        in_test=in_test,
+        completed=completed,
+        questions=questions,
+        current_answers=draft_answers,
+        started_at=active_att.get("aptitude_started_at"),
+        deadline=active_att.get("aptitude_deadline"),
+        remaining_seconds=rem_seconds,
+        duration_seconds=active_att.get("aptitude_duration_seconds") or APTITUDE_TIME_LIMIT_SECONDS,
+        is_timeout=bool(active_att.get("aptitude_timeout")),
+        total_questions=len(questions) if questions else 10,
+        answered_count=len(draft_answers),
+        category="All",
+        difficulty="Intermediate",
+        latest_result=latest_res
+    )
+
+
+@router.post("/start", response_model=AptitudeSessionResponse)
+def start_aptitude_test(payload: AptitudeStartRequest, current_user: dict = Depends(get_current_user)):
+    """
+    Explicitly starts the candidate Aptitude Assessment attempt and initializes the server countdown timer.
+    Generates/locks the 10 distinct questions for this attempt and establishes the authoritative server deadline.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    user_id = current_user["id"]
+
+    active_att = AttemptService.get_or_create_active_attempt(cursor, user_id)
+    att_id = active_att["attempt_id"]
+
+    # If already in_progress and has questions, return existing session so timer isn't reset
+    if active_att.get("aptitude_status") == "in_progress" and active_att.get("aptitude_question_ids"):
+        conn.commit()
+        conn.close()
+        return get_aptitude_session(current_user=current_user)
+
+    # Generate fresh 10 questions for this attempt
+    limit = payload.total_questions or 10
+    questions = _fetch_unique_aptitude_questions(
+        cursor=cursor,
+        user_id=user_id,
+        category=payload.category,
+        difficulty=payload.difficulty,
+        limit=limit,
+        attempt_id=att_id
+    )
+
+    q_ids = [q["id"] for q in questions]
+
+    # Start timer and update attempt record
+    updated_att = AttemptService.start_aptitude_test(
+        cursor=cursor,
+        user_id=user_id,
+        attempt_id=att_id,
+        question_ids=q_ids,
+        duration_seconds=APTITUDE_TIME_LIMIT_SECONDS
+    )
+
     conn.commit()
     conn.close()
 
-    # Shuffle final questions so categories and difficulty order are pleasantly randomized
-    random.shuffle(selected_questions)
-    return selected_questions[:limit]
+    return AptitudeSessionResponse(
+        attempt_id=att_id,
+        in_test=True,
+        completed=False,
+        questions=questions,
+        current_answers={},
+        started_at=updated_att.get("aptitude_started_at"),
+        deadline=updated_att.get("aptitude_deadline"),
+        remaining_seconds=updated_att.get("aptitude_remaining_seconds", APTITUDE_TIME_LIMIT_SECONDS),
+        duration_seconds=updated_att.get("aptitude_duration_seconds", APTITUDE_TIME_LIMIT_SECONDS),
+        is_timeout=False,
+        total_questions=len(questions),
+        answered_count=0,
+        category=payload.category or "All",
+        difficulty=payload.difficulty or "Intermediate"
+    )
+
+
+@router.post("/save-progress")
+def save_aptitude_progress(payload: AptitudeSaveProgressRequest, current_user: dict = Depends(get_current_user)):
+    """Saves candidate draft answers and time spent for seamless resumption across refreshes."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    user_id = current_user["id"]
+
+    active_att = AttemptService.get_or_create_active_attempt(cursor, user_id)
+    att_id = active_att["attempt_id"]
+
+    AttemptService.save_aptitude_progress(
+        cursor=cursor,
+        user_id=user_id,
+        attempt_id=att_id,
+        answers=payload.answers,
+        elapsed_seconds=payload.elapsed_seconds
+    )
+
+    conn.commit()
+    conn.close()
+    return {"status": "saved", "attempt_id": att_id}
+
 
 @router.post("/submit", response_model=AptitudeResultResponse)
 def submit_aptitude_test(
@@ -251,12 +444,26 @@ def submit_aptitude_test(
     """
     Evaluates candidate aptitude answers deterministically against stored answer keys.
     Authoritative objective scoring is calculated in the backend.
-    Tracks answers and attempts so future sessions avoid repeating these questions.
+    Enforces server-side deadline verification: late submissions are saved with is_timeout=True.
+    Updates assessment attempt status to 'completed', unlocking the Coding Assessment.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
 
     user_id = current_user["id"]
+
+    active_att = AttemptService.get_or_create_active_attempt(cursor, user_id)
+    att_id = active_att.get("attempt_id")
+
+    # Deadline validation
+    now_epoch = datetime.now(timezone.utc).timestamp()
+    dl_epoch = _parse_ts(active_att.get("aptitude_deadline"))
+    is_timeout = bool(data.is_timeout)
+    if dl_epoch and now_epoch > (dl_epoch + DEADLINE_GRACE_PERIOD_SECONDS):
+        is_timeout = True
+
+    completion_reason = "timeout" if is_timeout else "completed_normally"
+
     correct_count = 0
     incorrect_count = 0
     category_stats: Dict[str, Dict[str, int]] = {}
@@ -327,15 +534,16 @@ def submit_aptitude_test(
         if category_performance[lowest_cat] < 70.0:
             weak_categories.append(lowest_cat)
 
-    recommendation = (
-        f"Targeted Recommendation: Prioritize practice on {', '.join(weak_categories)} "
-        "(percentages, ratios, data tables, and graph interpretations) before attempting advanced company assessment tests."
-        if weak_categories else
-        "Outstanding aptitude proficiency across all evaluated categories! Proceed directly to the Coding Session."
-    )
+    if is_timeout:
+        recommendation = f"Assessment completed due to timer limit. Scored {overall_score}% ({correct_count}/{total_q} correct). Proceed to Stage 2: Coding Assessment."
+    elif weak_categories:
+        recommendation = (
+            f"Targeted Recommendation: Prioritize practice on {', '.join(weak_categories)} "
+            "before attempting advanced company assessment tests. Proceed to Stage 2: Coding Assessment."
+        )
+    else:
+        recommendation = "Outstanding aptitude proficiency across all evaluated categories! Proceed directly to Stage 2: Coding Assessment."
 
-    # Generate rich AI evaluation using Gemini (with automatic rule-based fallback if unavailable)
-    # Gemini NEVER overrides the authoritative objective score calculated above.
     ai_evaluation = LLMService.evaluate_aptitude_performance(
         total_questions=total_q,
         correct_count=correct_count,
@@ -346,21 +554,35 @@ def submit_aptitude_test(
         question_breakdown=question_breakdown
     )
 
-    # Save to aptitude_attempts table including ai_feedback
+    started_at = active_att.get("aptitude_started_at") or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    # Save to aptitude_attempts table including timing, timeout, and attempt_id
     cursor.execute("""
         INSERT INTO aptitude_attempts (
             user_id, category, difficulty, total_questions, correct_count,
-            incorrect_count, score, time_taken_seconds, category_breakdown, weak_categories, ai_feedback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            incorrect_count, score, time_taken_seconds, category_breakdown, weak_categories,
+            ai_feedback, attempt_id, is_timeout, completion_reason, started_at, completed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     """, (
         user_id, data.category, data.difficulty, total_q, correct_count,
         incorrect_count, overall_score, data.time_taken_seconds,
         json.dumps(category_performance), json.dumps(weak_categories),
-        json.dumps(ai_evaluation)
+        json.dumps(ai_evaluation), att_id, 1 if is_timeout else 0, completion_reason, started_at
     ))
     attempt_id = cursor.lastrowid
 
-    # Persist into aptitude_answers to record answer history for candidate
+    # Update attempt status in assessment_attempts to completed and unlock Coding
+    AttemptService.update_aptitude_status(
+        cursor=cursor,
+        user_id=user_id,
+        attempt_id=att_id,
+        aptitude_attempt_id=attempt_id,
+        status="completed",
+        time_taken=data.time_taken_seconds,
+        is_timeout=is_timeout
+    )
+
+    # Persist into aptitude_answers to record answer history
     for ans in evaluated_answers:
         cursor.execute("""
             INSERT INTO aptitude_answers (attempt_id, question_id, selected_option, is_correct)
@@ -381,8 +603,12 @@ def submit_aptitude_test(
         "category_performance": category_performance,
         "weak_categories": weak_categories,
         "recommendation": recommendation,
-        "ai_evaluation": ai_evaluation
+        "ai_evaluation": ai_evaluation,
+        "is_timeout": is_timeout,
+        "completion_reason": completion_reason,
+        "attempt_id_str": att_id
     }
+
 
 @router.get("/latest")
 def get_latest_aptitude(current_user: dict = Depends(get_current_user)):
@@ -418,8 +644,10 @@ def get_latest_aptitude(current_user: dict = Depends(get_current_user)):
         "category_performance": json.loads(row["category_breakdown"]) if row["category_breakdown"] else {},
         "weak_categories": json.loads(row["weak_categories"]) if row["weak_categories"] else [],
         "ai_evaluation": ai_eval,
+        "is_timeout": bool(row["is_timeout"]) if "is_timeout" in row.keys() else False,
         "created_at": str(row["created_at"])
     }
+
 
 class AptitudeSolutionsRequest(BaseModel):
     question_ids: List[int]
@@ -454,4 +682,3 @@ def get_aptitude_solutions(
             "explanation": r["explanation"] if "explanation" in r.keys() else ""
         }
     return {"solutions": solutions}
-

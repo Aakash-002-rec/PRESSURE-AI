@@ -7,7 +7,7 @@ export default function Navbar({ user, onLogout, activeTab, setActiveTab, onOpen
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Brand */}
         <div 
-          onClick={() => setActiveTab("setup")}
+          onClick={() => setActiveTab("dashboard")}
           className="flex items-center gap-2.5 cursor-pointer group"
         >
           <div className="relative w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-600 via-red-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-600/30 group-hover:scale-105 transition-transform">

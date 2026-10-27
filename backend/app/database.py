@@ -7,9 +7,11 @@ import bcrypt
 DB_PATH = Path(__file__).resolve().parent.parent / "pressure_ai.db"
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA busy_timeout = 30000;")
     return conn
 
 def hash_password(password: str) -> str:
@@ -345,14 +347,41 @@ def init_db():
     );
     """)
 
-    # User Served Questions tracking table
+    # Coding Sessions table (Session-aware question tracking & persistent limits)
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS user_served_questions (
+    CREATE TABLE IF NOT EXISTS coding_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
-        module TEXT NOT NULL, -- 'aptitude' or 'coding'
-        question_id INTEGER NOT NULL,
+        session_id TEXT UNIQUE NOT NULL,
+        language TEXT NOT NULL DEFAULT 'python',
+        domain TEXT NOT NULL DEFAULT 'Algorithms',
+        difficulty TEXT NOT NULL DEFAULT 'Intermediate',
+        question_ids TEXT NOT NULL, -- JSON array of 3 assigned problem IDs [id1, id2, id3]
+        question_order TEXT NOT NULL, -- JSON array of order [1, 2, 3]
+        current_index INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'in_progress', -- 'in_progress', 'completed'
+        attempt_id TEXT, -- Associated assessment attempt ID
+        completed_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+    """)
+
+    # Assessment Attempts table (Full-pipeline Attempt / Retest orchestration)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS assessment_attempts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attempt_id TEXT UNIQUE NOT NULL,
+        user_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'in_progress', -- 'in_progress', 'completed', 'archived'
+        aptitude_attempt_id INTEGER,
+        coding_session_id TEXT,
+        interview_id INTEGER,
+        aptitude_status TEXT NOT NULL DEFAULT 'not_started', -- 'not_started', 'in_progress', 'completed'
+        coding_status TEXT NOT NULL DEFAULT 'not_started', -- 'not_started', 'in_progress', 'completed'
+        interview_status TEXT NOT NULL DEFAULT 'not_started', -- 'not_started', 'in_progress', 'completed'
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
     """)
@@ -432,6 +461,195 @@ def migrate_db(conn: sqlite3.Connection):
         cursor.execute("ALTER TABLE user_served_questions ADD COLUMN fingerprint TEXT;")
     if "status" not in usq_cols:
         cursor.execute("ALTER TABLE user_served_questions ADD COLUMN status TEXT DEFAULT 'in_progress';")
+    if "session_id" not in usq_cols:
+        cursor.execute("ALTER TABLE user_served_questions ADD COLUMN session_id TEXT;")
+    if "question_order" not in usq_cols:
+        cursor.execute("ALTER TABLE user_served_questions ADD COLUMN question_order INTEGER DEFAULT 1;")
+
+    # Check coding_attempts table
+    cursor.execute("PRAGMA table_info(coding_attempts);")
+    ca_cols = [row["name"] for row in cursor.fetchall()]
+    if "session_id" not in ca_cols:
+        cursor.execute("ALTER TABLE coding_attempts ADD COLUMN session_id TEXT;")
+    if "attempt_id" not in ca_cols:
+        cursor.execute("ALTER TABLE coding_attempts ADD COLUMN attempt_id TEXT;")
+
+    # Ensure coding_sessions table exists
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS coding_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        session_id TEXT UNIQUE NOT NULL,
+        language TEXT NOT NULL DEFAULT 'python',
+        domain TEXT NOT NULL DEFAULT 'Algorithms',
+        difficulty TEXT NOT NULL DEFAULT 'Intermediate',
+        question_ids TEXT NOT NULL,
+        question_order TEXT NOT NULL,
+        current_index INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'in_progress',
+        attempt_id TEXT,
+        completed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+    """)
+
+    cursor.execute("PRAGMA table_info(coding_sessions);")
+    cs_cols = [row["name"] for row in cursor.fetchall()]
+    if "attempt_id" not in cs_cols:
+        cursor.execute("ALTER TABLE coding_sessions ADD COLUMN attempt_id TEXT;")
+
+    # Ensure assessment_attempts table exists
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS assessment_attempts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attempt_id TEXT UNIQUE NOT NULL,
+        user_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'in_progress',
+        aptitude_attempt_id INTEGER,
+        coding_session_id TEXT,
+        interview_id INTEGER,
+        aptitude_status TEXT NOT NULL DEFAULT 'not_started',
+        coding_status TEXT NOT NULL DEFAULT 'not_started',
+        interview_status TEXT NOT NULL DEFAULT 'not_started',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+    """)
+
+    # Check aptitude_attempts for attempt_id
+    cursor.execute("PRAGMA table_info(aptitude_attempts);")
+    aat_cols2 = [row["name"] for row in cursor.fetchall()]
+    if "attempt_id" not in aat_cols2:
+        cursor.execute("ALTER TABLE aptitude_attempts ADD COLUMN attempt_id TEXT;")
+
+    # Check interviews for attempt_id
+    cursor.execute("PRAGMA table_info(interviews);")
+    iv_cols = [row["name"] for row in cursor.fetchall()]
+    if "attempt_id" not in iv_cols:
+        cursor.execute("ALTER TABLE interviews ADD COLUMN attempt_id TEXT;")
+
+    # Check user_served_questions for attempt_id
+    cursor.execute("PRAGMA table_info(user_served_questions);")
+    usq_cols2 = [row["name"] for row in cursor.fetchall()]
+    if "attempt_id" not in usq_cols2:
+        cursor.execute("ALTER TABLE user_served_questions ADD COLUMN attempt_id TEXT;")
+
+    # Check assessment_attempts columns
+    cursor.execute("PRAGMA table_info(assessment_attempts);")
+    aa_cols = [row["name"] for row in cursor.fetchall()]
+    aa_new_cols = [
+        ("attempt_number", "INTEGER DEFAULT 1"),
+        ("current_stage", "TEXT DEFAULT 'aptitude'"),
+        ("completion_reason", "TEXT"),
+        ("total_time_taken_seconds", "INTEGER DEFAULT 0"),
+        ("aptitude_started_at", "TIMESTAMP"),
+        ("aptitude_deadline", "TIMESTAMP"),
+        ("aptitude_completed_at", "TIMESTAMP"),
+        ("aptitude_duration_seconds", "INTEGER DEFAULT 900"),
+        ("aptitude_time_taken_seconds", "INTEGER DEFAULT 0"),
+        ("aptitude_timeout", "INTEGER DEFAULT 0"),
+        ("aptitude_question_ids", "TEXT"),
+        ("aptitude_answers_draft", "TEXT"),
+        ("coding_started_at", "TIMESTAMP"),
+        ("coding_deadline", "TIMESTAMP"),
+        ("coding_duration_seconds", "INTEGER DEFAULT 1800"),
+        ("coding_time_taken_seconds", "INTEGER DEFAULT 0"),
+        ("coding_timeout", "INTEGER DEFAULT 0"),
+        ("interview_started_at", "TIMESTAMP"),
+        ("interview_deadline", "TIMESTAMP"),
+        ("interview_duration_seconds", "INTEGER DEFAULT 1200"),
+        ("interview_time_taken_seconds", "INTEGER DEFAULT 0"),
+        ("interview_timeout", "INTEGER DEFAULT 0")
+    ]
+    for col_name, col_type in aa_new_cols:
+        if col_name not in aa_cols:
+            cursor.execute(f"ALTER TABLE assessment_attempts ADD COLUMN {col_name} {col_type};")
+
+    # Check coding_sessions columns
+    cursor.execute("PRAGMA table_info(coding_sessions);")
+    cs_cols2 = [row["name"] for row in cursor.fetchall()]
+    cs_new_cols = [
+        ("started_at", "TIMESTAMP"),
+        ("deadline", "TIMESTAMP"),
+        ("duration_seconds", "INTEGER DEFAULT 1800"),
+        ("time_taken_seconds", "INTEGER DEFAULT 0"),
+        ("is_timeout", "INTEGER DEFAULT 0"),
+        ("completion_reason", "TEXT"),
+        ("question_times", "TEXT")
+    ]
+    for col_name, col_type in cs_new_cols:
+        if col_name not in cs_cols2:
+            cursor.execute(f"ALTER TABLE coding_sessions ADD COLUMN {col_name} {col_type};")
+
+    # Check coding_attempts columns
+    cursor.execute("PRAGMA table_info(coding_attempts);")
+    ca_cols2 = [row["name"] for row in cursor.fetchall()]
+    ca_new_cols = [
+        ("time_spent_seconds", "INTEGER DEFAULT 0"),
+        ("submission_attempt_number", "INTEGER DEFAULT 1"),
+        ("error_details", "TEXT"),
+        ("execution_time_ms", "REAL DEFAULT 0")
+    ]
+    for col_name, col_type in ca_new_cols:
+        if col_name not in ca_cols2:
+            cursor.execute(f"ALTER TABLE coding_attempts ADD COLUMN {col_name} {col_type};")
+
+    # Check interviews columns
+    cursor.execute("PRAGMA table_info(interviews);")
+    iv_cols2 = [row["name"] for row in cursor.fetchall()]
+    iv_new_cols = [
+        ("deadline", "TIMESTAMP"),
+        ("duration_seconds", "INTEGER DEFAULT 1200"),
+        ("time_taken_seconds", "INTEGER DEFAULT 0"),
+        ("is_timeout", "INTEGER DEFAULT 0"),
+        ("completion_reason", "TEXT")
+    ]
+    for col_name, col_type in iv_new_cols:
+        if col_name not in iv_cols2:
+            cursor.execute(f"ALTER TABLE interviews ADD COLUMN {col_name} {col_type};")
+
+    # Check answers columns
+    cursor.execute("PRAGMA table_info(answers);")
+    ans_cols = [row["name"] for row in cursor.fetchall()]
+    if "time_spent_seconds" not in ans_cols:
+        cursor.execute("ALTER TABLE answers ADD COLUMN time_spent_seconds INTEGER DEFAULT 0;")
+    if "submitted_at" not in ans_cols:
+        cursor.execute("ALTER TABLE answers ADD COLUMN submitted_at TIMESTAMP;")
+
+    # Check aptitude_attempts columns
+    cursor.execute("PRAGMA table_info(aptitude_attempts);")
+    aat_cols3 = [row["name"] for row in cursor.fetchall()]
+    if "is_timeout" not in aat_cols3:
+        cursor.execute("ALTER TABLE aptitude_attempts ADD COLUMN is_timeout INTEGER DEFAULT 0;")
+    if "completion_reason" not in aat_cols3:
+        cursor.execute("ALTER TABLE aptitude_attempts ADD COLUMN completion_reason TEXT DEFAULT 'completed_normally';")
+    if "started_at" not in aat_cols3:
+        cursor.execute("ALTER TABLE aptitude_attempts ADD COLUMN started_at TIMESTAMP;")
+    if "completed_at" not in aat_cols3:
+        cursor.execute("ALTER TABLE aptitude_attempts ADD COLUMN completed_at TIMESTAMP;")
+
+
+    # Check combined_assessments columns
+    cursor.execute("PRAGMA table_info(combined_assessments);")
+    cmb_cols = [row["name"] for row in cursor.fetchall()]
+    if "attempt_id" not in cmb_cols:
+        cursor.execute("ALTER TABLE combined_assessments ADD COLUMN attempt_id TEXT;")
+    if "total_time_taken_seconds" not in cmb_cols:
+        cursor.execute("ALTER TABLE combined_assessments ADD COLUMN total_time_taken_seconds INTEGER DEFAULT 0;")
+    if "time_efficiency_metrics" not in cmb_cols:
+        cursor.execute("ALTER TABLE combined_assessments ADD COLUMN time_efficiency_metrics TEXT;")
+    if "recommendations" not in cmb_cols:
+        cursor.execute("ALTER TABLE combined_assessments ADD COLUMN recommendations TEXT;")
+
+    # Performance and query speed indexes
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_assessment_attempts_user ON assessment_attempts(user_id, status);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_assessment_attempts_att ON assessment_attempts(attempt_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_coding_sessions_att ON coding_sessions(attempt_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_coding_attempts_att ON coding_attempts(attempt_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_interviews_att ON interviews(attempt_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_served_questions_user_mod ON user_served_questions(user_id, module, question_id);")
 
     # Backfill fingerprints for any coding problems missing them
     cursor.execute("SELECT id, title, description, starter_code, test_cases FROM coding_problems WHERE fingerprint IS NULL OR fingerprint = ''")
@@ -441,6 +659,7 @@ def migrate_db(conn: sqlite3.Connection):
         cursor.execute("UPDATE coding_problems SET fingerprint = ? WHERE id = ?", (fp, row["id"]))
 
     conn.commit()
+
 
 def seed_initial_data(conn: sqlite3.Connection):
     cursor = conn.cursor()
@@ -547,16 +766,17 @@ def seed_initial_data(conn: sqlite3.Connection):
     from .services.coding_bank import CODING_PROBLEMS
     from .services.problem_fingerprint import compute_problem_fingerprint
     for p in CODING_PROBLEMS:
-        cursor.execute("SELECT id, solution_code FROM coding_problems WHERE title = ? OR id = ?", (p["title"], p["id"]))
+        cursor.execute("SELECT id, solution_code, fingerprint FROM coding_problems WHERE title = ? OR id = ?", (p["title"], p["id"]))
         existing = cursor.fetchone()
         fp = compute_problem_fingerprint(p["title"], p["description"], p["starter_code"], p["test_cases"])
         sol_code = p.get("solution_code", "")
         if existing:
-            cursor.execute("""
-                UPDATE coding_problems
-                SET solution_code = ?, fingerprint = COALESCE(fingerprint, ?)
-                WHERE id = ?
-            """, (sol_code, fp, existing["id"]))
+            if existing["solution_code"] != sol_code or existing["fingerprint"] != fp:
+                cursor.execute("""
+                    UPDATE coding_problems
+                    SET solution_code = ?, fingerprint = COALESCE(fingerprint, ?)
+                    WHERE id = ?
+                """, (sol_code, fp, existing["id"]))
         else:
             cursor.execute("""
                 INSERT INTO coding_problems (

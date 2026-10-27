@@ -35,11 +35,19 @@ class TestRegressionCodingCompletionAndInterviewMix(unittest.TestCase):
         # Clear any prior served records for this user
         self.cursor.execute("DELETE FROM user_served_questions WHERE user_id = ?", (self.user_id,))
         self.cursor.execute("DELETE FROM coding_attempts WHERE user_id = ?", (self.user_id,))
+        self.cursor.execute("DELETE FROM coding_sessions WHERE user_id = ?", (self.user_id,))
+        self.cursor.execute("DELETE FROM assessment_attempts WHERE user_id = ?", (self.user_id,))
+        
+        from app.services.attempt_service import AttemptService
+        AttemptService.get_or_create_active_attempt(self.cursor, self.user_id)
+        self.cursor.execute("UPDATE assessment_attempts SET aptitude_status = 'completed' WHERE user_id = ?", (self.user_id,))
         self.conn.commit()
 
     def tearDown(self):
         self.cursor.execute("DELETE FROM user_served_questions WHERE user_id = ?", (self.user_id,))
         self.cursor.execute("DELETE FROM coding_attempts WHERE user_id = ?", (self.user_id,))
+        self.cursor.execute("DELETE FROM coding_sessions WHERE user_id = ?", (self.user_id,))
+        self.cursor.execute("DELETE FROM assessment_attempts WHERE user_id = ?", (self.user_id,))
         self.cursor.execute("DELETE FROM users WHERE id = ?", (self.user_id,))
         self.conn.commit()
         self.conn.close()

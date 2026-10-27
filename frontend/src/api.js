@@ -74,6 +74,17 @@ export const api = {
       const query = new URLSearchParams(params).toString();
       return request(`/aptitude/questions?${query}`);
     },
+    getSession: () => request("/aptitude/session"),
+    start: (data = {}) =>
+      request("/aptitude/start", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    saveProgress: (data) =>
+      request("/aptitude/save-progress", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     getSolutions: (questionIds) =>
       request("/aptitude/solutions", {
         method: "POST",
@@ -113,6 +124,14 @@ export const api = {
   },
   assessment: {
     getCombined: () => request("/assessments/combined"),
+    getCurrentAttempt: () => request("/assessment/attempt/current"),
+    startRetest: () =>
+      request("/assessment/retest", {
+        method: "POST",
+      }),
+    getAttemptHistory: () => request("/assessment/attempts/history"),
+    getAttemptReport: (attemptId) => request(`/assessment/attempt/${attemptId}/report`),
+    getLatestReport: () => request("/assessment/report/latest"),
     getRoadmap: (topic) => request(`/roadmap/tasks${topic ? `?topic=${encodeURIComponent(topic)}` : ""}`),
     updateRoadmap: (data) =>
       request("/roadmap/tasks/update", {

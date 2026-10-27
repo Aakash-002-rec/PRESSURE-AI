@@ -3,17 +3,23 @@ import {
   Award, BrainCircuit, Code2, BookOpen, BarChart3, Flame, 
   ArrowRight, CheckCircle2, AlertTriangle, Sparkles, Target, 
   Compass, Clock, Play, RotateCcw, Layers, HelpCircle, ChevronRight,
-  Maximize2, X, Zap, TrendingUp, ShieldCheck, Activity
+  Maximize2, X, Zap, TrendingUp, ShieldCheck, Activity, Lock
 } from "lucide-react";
 import { api } from "../api";
 
 export default function CandidateDashboard({ 
   user, 
   onNavigate, 
-  onStartInterview, 
+  onStartInterview,
+  onStartRetest,
+  onViewAttemptReport,
+  retestLoading = false,
   onOpenAuth 
 }) {
   const [profile, setProfile] = useState(null);
+  const [codingStatus, setCodingStatus] = useState(null);
+  const [currentAttempt, setCurrentAttempt] = useState(null);
+  const [attemptHistory, setAttemptHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeWidgetDetail, setActiveWidgetDetail] = useState(null); // stores active enlarged widget info
 
@@ -30,6 +36,12 @@ export default function CandidateDashboard({
       setLoading(true);
       const data = await api.assessment.getCombined();
       setProfile(data);
+      const cStatus = await api.coding.getStatus().catch(() => null);
+      if (cStatus) setCodingStatus(cStatus);
+      const attemptData = await api.assessment.getCurrentAttempt().catch(() => null);
+      if (attemptData) setCurrentAttempt(attemptData);
+      const history = await api.assessment.getAttemptHistory().catch(() => []);
+      if (history) setAttemptHistory(history);
     } catch (err) {
       console.warn("Could not load combined profile:", err);
     } finally {
@@ -114,6 +126,63 @@ export default function CandidateDashboard({
     });
   }
 
+  const aptCompleted = currentAttempt?.aptitude_status === "completed" || (profile && profile.aptitude_score > 0);
+  const codingCompleted = currentAttempt?.coding_status === "completed" || Boolean(codingStatus?.all_completed);
+  const interviewCompleted = currentAttempt?.interview_status === "completed" || (profile && profile.interview_score > 0 && codingCompleted);
+
+  function getStageInfo(stepId) {
+    if (stepId === "aptitude") {
+      const st = currentAttempt?.aptitude_status || (aptCompleted ? "completed" : "not_started");
+      return {
+        status: st === "completed" ? "Completed" : (st === "in_progress" ? "In Progress" : "Not Started"),
+        isLocked: false,
+        score: profile?.aptitude_score
+      };
+    }
+    if (stepId === "coding") {
+      if (!aptCompleted) {
+        return { status: "Locked", isLocked: true, lockReason: "Stage 1: Complete Aptitude Test first" };
+      }
+      const st = currentAttempt?.coding_status || (codingCompleted ? "completed" : (codingStatus?.in_progress_count > 0 ? "in_progress" : "not_started"));
+      return {
+        status: st === "completed" ? "Completed" : (st === "in_progress" ? "In Progress" : "Not Started"),
+        isLocked: false,
+        score: profile?.coding_score
+      };
+    }
+    if (stepId === "setup" || stepId === "interview") {
+      if (!aptCompleted || !codingCompleted) {
+        return { 
+          status: "Locked", 
+          isLocked: true, 
+          lockReason: !aptCompleted ? "Complete Aptitude first" : "Stage 2: Complete Coding Assessment first" 
+        };
+      }
+      const st = currentAttempt?.interview_status || (interviewCompleted ? "completed" : "not_started");
+      return {
+        status: st === "completed" ? "Completed" : (st === "in_progress" ? "In Progress" : "Not Started"),
+        isLocked: false,
+        score: profile?.interview_score
+      };
+    }
+    if (stepId === "combined_report") {
+      if (!interviewCompleted) {
+        return { status: "Locked", isLocked: true, lockReason: "Complete all 3 assessment stages to view report" };
+      }
+      return { status: "Completed", isLocked: false, score: profile?.overall_readiness };
+    }
+    return { status: "Available", isLocked: false };
+  }
+
+  function handleStepClick(step, idx) {
+    const info = getStageInfo(step.id);
+    if (info.isLocked) {
+      alert(`Access Blocked: ${info.lockReason}`);
+      return;
+    }
+    inspectWidget("pipeline_step", { step, stepIdx: idx + 1, stageInfo: info });
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 animate-fade-in space-y-8">
       {/* Welcome Banner */}
@@ -122,9 +191,17 @@ export default function CandidateDashboard({
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-semibold mb-3">
-              <Flame className="w-3.5 h-3.5" />
-              Comprehensive Placement Preparation & Assessment Platform
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-semibold">
+                <Flame className="w-3.5 h-3.5" />
+                Comprehensive Placement Preparation & Assessment Platform
+              </div>
+              {currentAttempt && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-slate-300 text-xs font-mono">
+                  <Layers className="w-3.5 h-3.5 text-orange-400" />
+                  <span>Attempt #{currentAttempt.attempt_number || 1}: {currentAttempt.attempt_id ? currentAttempt.attempt_id.substring(0, 16) : "Active"}</span>
+                </div>
+              )}
             </div>
             <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight mb-3">
               Welcome to PRESSURE<span className="text-orange-500">-AI</span>
@@ -134,54 +211,152 @@ export default function CandidateDashboard({
             </p>
           </div>
 
-          {/* Quick CTA */}
+          {/* Quick Stage-Aware CTA */}
           <div className="flex flex-col sm:flex-row items-center gap-3">
-            <button
-              onClick={() => onNavigate("aptitude")}
-              className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-orange-500/25 flex items-center justify-center gap-2 transition-transform hover:scale-[1.03] active:scale-[0.98]"
-            >
-              <Compass className="w-4 h-4" />
-              Start Aptitude Test
-            </button>
-            <button
-              onClick={() => onNavigate("coding")}
-              className="w-full sm:w-auto px-5 py-3.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700/80 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.03] active:scale-[0.98]"
-            >
-              <Code2 className="w-4 h-4 text-emerald-400" />
-              Coding Arena
-            </button>
+            {profile && profile.aptitude_score > 0 && !codingStatus?.all_completed ? (
+              <>
+                <button
+                  onClick={() => onNavigate("coding")}
+                  className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-transform hover:scale-[1.03] active:scale-[0.98]"
+                >
+                  <Code2 className="w-4 h-4 text-white" />
+                  Proceed to Stage 2: Coding Assessment ({codingStatus?.completed_count || 0}/3)
+                </button>
+                {onStartRetest && (
+                  <button
+                    onClick={onStartRetest}
+                    disabled={retestLoading}
+                    className="w-full sm:w-auto px-4 py-3.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/40 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.03] active:scale-[0.98] disabled:opacity-50"
+                  >
+                    <RotateCcw className={`w-4 h-4 text-amber-400 ${retestLoading ? "animate-spin" : ""}`} />
+                    {retestLoading ? "Starting..." : "Retest"}
+                  </button>
+                )}
+                <button
+                  onClick={() => onNavigate("aptitude")}
+                  className="w-full sm:w-auto px-5 py-3.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700/80 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.03] active:scale-[0.98]"
+                >
+                  <Compass className="w-4 h-4 text-blue-400" />
+                  Review Aptitude
+                </button>
+              </>
+            ) : codingStatus?.all_completed ? (
+              <>
+                <button
+                  onClick={() => onNavigate("setup")}
+                  className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-orange-500/25 flex items-center justify-center gap-2 transition-transform hover:scale-[1.03] active:scale-[0.98]"
+                >
+                  <BrainCircuit className="w-4 h-4 text-white" />
+                  Proceed to Stage 3: AI Mock Interview
+                </button>
+                {onStartRetest && (
+                  <button
+                    onClick={onStartRetest}
+                    disabled={retestLoading}
+                    className="w-full sm:w-auto px-5 py-3.5 bg-gradient-to-r from-amber-600/30 to-orange-600/30 hover:from-amber-600/40 hover:to-orange-600/40 text-amber-300 border border-amber-500/50 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.03] active:scale-[0.98] shadow-lg shadow-amber-500/10 disabled:opacity-50"
+                  >
+                    <RotateCcw className={`w-4 h-4 text-amber-400 ${retestLoading ? "animate-spin" : ""}`} />
+                    {retestLoading ? "Starting New Attempt..." : "Retest / Start New Attempt"}
+                  </button>
+                )}
+                <button
+                  onClick={() => onNavigate("coding")}
+                  className="w-full sm:w-auto px-5 py-3.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700/80 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.03] active:scale-[0.98]"
+                >
+                  <Code2 className="w-4 h-4 text-emerald-400" />
+                  Coding Session (3/3 Solved)
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => onNavigate("aptitude")}
+                  className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-transform hover:scale-[1.03] active:scale-[0.98]"
+                >
+                  <Compass className="w-4 h-4" />
+                  Start Stage 1: Aptitude Test
+                </button>
+                {onStartRetest && (
+                  <button
+                    onClick={onStartRetest}
+                    disabled={retestLoading}
+                    className="w-full sm:w-auto px-4 py-3.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700/80 hover:border-amber-500/40 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.03] active:scale-[0.98] disabled:opacity-50"
+                  >
+                    <RotateCcw className={`w-4 h-4 text-amber-400 ${retestLoading ? "animate-spin" : ""}`} />
+                    {retestLoading ? "Starting..." : "Start Fresh Attempt"}
+                  </button>
+                )}
+                <button
+                  onClick={() => onNavigate("coding")}
+                  className="w-full sm:w-auto px-5 py-3.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700/80 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.03] active:scale-[0.98]"
+                >
+                  <Code2 className="w-4 h-4 text-emerald-400" />
+                  Stage 2: Coding Arena
+                </button>
+              </>
+            )}
           </div>
         </div>
 
         {/* Candidate Preparation Pipeline Journey Tracker */}
         <div className="mt-8 pt-6 border-t border-slate-800/80">
           <div className="flex items-center justify-between mb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">
-            <span>Placement Readiness Journey (Click any step to inspect & launch)</span>
-            <span className="text-orange-400 font-mono">End-to-End Pipeline</span>
+            <span>Assessment Pipeline & Stage Access (Enforces Strict Progression)</span>
+            <span className="text-orange-400 font-mono">1. Aptitude → 2. Coding → 3. Mock Interview → 4. Report</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
             {journeySteps.map((step, idx) => {
               const StepIcon = step.icon;
+              const info = getStageInfo(step.id);
               return (
                 <button
                   key={step.id}
-                  onClick={() => inspectWidget("pipeline_step", { step, stepIdx: idx + 1 })}
-                  className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 hover:border-orange-500/60 text-left transition-all group flex flex-col justify-between hover:bg-slate-900 hover:scale-[1.04] active:scale-[0.96] shadow-sm hover:shadow-orange-500/10"
+                  onClick={() => handleStepClick(step, idx)}
+                  className={`p-3 rounded-xl border text-left transition-all group flex flex-col justify-between hover:scale-[1.04] active:scale-[0.96] shadow-sm ${
+                    info.isLocked 
+                      ? "bg-slate-950/40 border-slate-800/50 opacity-65 cursor-not-allowed" 
+                      : info.status === "Completed"
+                      ? "bg-emerald-950/20 border-emerald-500/40 hover:border-emerald-500"
+                      : info.status === "In Progress"
+                      ? "bg-amber-950/20 border-amber-500/40 hover:border-amber-500"
+                      : "bg-slate-950/70 border-slate-800/80 hover:border-orange-500/60 hover:bg-slate-900"
+                  }`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="w-5 h-5 rounded-md bg-slate-900 text-[10px] font-bold text-slate-400 flex items-center justify-center border border-slate-800 group-hover:border-orange-500/50 group-hover:text-orange-400">
                       {idx + 1}
                     </span>
-                    <StepIcon className="w-3.5 h-3.5 text-slate-400 group-hover:text-orange-400 transition-colors" />
+                    {info.isLocked ? (
+                      <Lock className="w-3.5 h-3.5 text-slate-500" />
+                    ) : info.status === "Completed" ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <StepIcon className="w-3.5 h-3.5 text-slate-400 group-hover:text-orange-400 transition-colors" />
+                    )}
                   </div>
                   <div>
-                    <span className="text-xs font-bold text-white block group-hover:text-orange-400 transition-colors">
-                      {step.title}
-                    </span>
-                    <span className="text-[10px] text-slate-400 line-clamp-1">
-                      {step.desc}
-                    </span>
+                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                      <span className="text-xs font-bold text-white block group-hover:text-orange-400 transition-colors truncate">
+                        {step.title}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+                        info.isLocked 
+                          ? "bg-slate-800 text-slate-400" 
+                          : info.status === "Completed"
+                          ? "bg-emerald-500/20 text-emerald-300"
+                          : info.status === "In Progress"
+                          ? "bg-amber-500/20 text-amber-300"
+                          : "bg-slate-800 text-slate-300"
+                      }`}>
+                        {info.status}
+                      </span>
+                      {info.score !== undefined && info.score !== null && !info.isLocked && (
+                        <span className="text-[10px] font-mono font-bold text-slate-300">{info.score}%</span>
+                      )}
+                    </div>
                   </div>
                 </button>
               );
@@ -637,6 +812,155 @@ export default function CandidateDashboard({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ASSESSMENT ATTEMPT HISTORY & LONGITUDINAL COMPARISONS */}
+      <div className="glass-panel rounded-3xl p-6 md:p-8 border border-slate-800 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                Longitudinal Audit Trail
+              </span>
+              <span className="text-xs text-slate-500 font-mono">Attempt Records: {attemptHistory.length} Total</span>
+            </div>
+            <h3 className="text-2xl font-black text-white">Assessment Attempt History</h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Every attempt maintains dedicated question pools, code submissions, and interview evaluations. Historical records are permanently preserved.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {onStartRetest && (
+              <button
+                onClick={onStartRetest}
+                disabled={retestLoading}
+                className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-extrabold text-xs rounded-xl shadow-lg shadow-orange-500/20 flex items-center gap-2 transition-all hover:scale-[1.03] active:scale-[0.98] disabled:opacity-50"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${retestLoading ? "animate-spin" : ""}`} />
+                {retestLoading ? "Starting Retest..." : "Retest / Start New Attempt"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {attemptHistory.length === 0 ? (
+          <div className="p-8 text-center rounded-2xl bg-slate-950/40 border border-slate-800/80 space-y-2">
+            <Layers className="w-8 h-8 text-slate-500 mx-auto" />
+            <p className="text-xs font-semibold text-slate-300">No Historical Attempts Found</p>
+            <p className="text-[11px] text-slate-500 max-w-md mx-auto">
+              Complete your active diagnostic attempt (Aptitude, Coding, and AI Mock Interview) to record your initial placement benchmark.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800/80 text-[10px] uppercase text-slate-400 font-mono">
+                  <th className="py-3 px-3">Attempt</th>
+                  <th className="py-3 px-3">Date & Time</th>
+                  <th className="py-3 px-3">Stage 1: Aptitude</th>
+                  <th className="py-3 px-3">Stage 2: Coding</th>
+                  <th className="py-3 px-3">Stage 3: Interview</th>
+                  <th className="py-3 px-3">Status</th>
+                  <th className="py-3 px-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {attemptHistory.map((att, idx) => {
+                  const isCurrent = currentAttempt && currentAttempt.attempt_id === att.attempt_id;
+                  const aptScore = att.aptitude_score !== null && att.aptitude_score !== undefined ? `${att.aptitude_score}%` : "—";
+                  const codingPassed = att.coding_passed_count !== null && att.coding_passed_count !== undefined ? `${att.coding_passed_count}/3 Passed` : "—";
+                  const ivScore = att.interview_score !== null && att.interview_score !== undefined ? `${att.interview_score}%` : "—";
+
+                  return (
+                    <tr 
+                      key={att.attempt_id || idx}
+                      className={`hover:bg-slate-900/60 transition-colors ${isCurrent ? "bg-orange-500/5 border-l-2 border-orange-500" : ""}`}
+                    >
+                      <td className="py-3.5 px-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-md bg-slate-800 text-[11px] font-bold text-orange-400 flex items-center justify-center border border-slate-700">
+                            #{att.attempt_number || (attemptHistory.length - idx)}
+                          </span>
+                          <div>
+                            <span className="font-mono text-[11px] text-white block">
+                              {att.attempt_id ? att.attempt_id.substring(0, 14) : "Attempt"}...
+                            </span>
+                            {isCurrent && (
+                              <span className="text-[9px] text-orange-400 font-bold uppercase tracking-wider">Active</span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-3 text-slate-400 font-mono text-[11px]">
+                        {att.started_at ? att.started_at.substring(0, 16) : "Recent"}
+                      </td>
+
+                      <td className="py-3.5 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${
+                            att.aptitude_status === "completed" ? "bg-emerald-400" : (att.aptitude_status === "in_progress" ? "bg-amber-400" : "bg-slate-600")
+                          }`}></span>
+                          <span className="font-semibold text-slate-200">{aptScore}</span>
+                          <span className="text-[10px] text-slate-500 capitalize">({att.aptitude_status || "not started"})</span>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${
+                            att.coding_status === "completed" ? "bg-emerald-400" : (att.coding_status === "in_progress" ? "bg-amber-400" : "bg-slate-600")
+                          }`}></span>
+                          <span className="font-semibold text-slate-200">{codingPassed}</span>
+                          <span className="text-[10px] text-slate-500 capitalize">({att.coding_status || "not started"})</span>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${
+                            att.interview_status === "completed" ? "bg-emerald-400" : (att.interview_status === "in_progress" ? "bg-amber-400" : "bg-slate-600")
+                          }`}></span>
+                          <span className="font-semibold text-slate-200">{ivScore}</span>
+                          <span className="text-[10px] text-slate-500 capitalize">({att.interview_status || "not started"})</span>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-3">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          att.status === "completed" 
+                            ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" 
+                            : "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                        }`}>
+                          {att.status || "in_progress"}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onViewAttemptReport) {
+                              onViewAttemptReport(att.attempt_id);
+                            } else {
+                              onNavigate("combined_report");
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 hover:border-purple-500/60 text-purple-300 font-bold rounded-lg text-xs inline-flex items-center gap-1 transition-all"
+                        >
+                          <span>Full Report</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* ========================================================================= */}
