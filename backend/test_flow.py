@@ -217,7 +217,7 @@ def test_full_flow():
     print(f"✓ Top Weak Topics across platform: {len(adm['top_weak_topics'])}")
 
     print("\n========================================================")
-    print("🎉 ALL 14 PRESSURE-AI INTEGRATION TESTS PASSED 100%!")
+    print("🎉 ALL 14 MOCKMIND AI INTEGRATION TESTS PASSED 100%!")
     print("========================================================\n")
 
 if __name__ == "__main__":

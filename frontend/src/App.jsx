@@ -111,6 +111,25 @@ export default function App() {
     setActiveTab("interview");
   }
 
+  async function handleGoToInterview() {
+    if (currentInterview && currentInterview.status === "in_progress" && !currentInterview.is_timeout) {
+      setActiveTab("interview");
+      return;
+    }
+    try {
+      const list = await api.interviews.list();
+      const inProgress = list && list.find((iv) => iv.status === "in_progress" && !iv.is_timeout);
+      if (inProgress) {
+        setCurrentInterview(inProgress);
+        setActiveTab("interview");
+        return;
+      }
+    } catch (e) {
+      console.warn("Could not check active interview:", e);
+    }
+    setActiveTab("setup");
+  }
+
   function handleFinishInterview(interviewId) {
     setReportInterviewId(interviewId);
     setSelectedAttemptId(null);
@@ -161,6 +180,7 @@ export default function App() {
         onLogout={handleLogout}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        onGoToInterview={handleGoToInterview}
         onOpenAuth={() => setAuthModalOpen(true)}
         onOpenHowItWorks={() => setHowItWorksOpen(true)}
       />
@@ -171,10 +191,16 @@ export default function App() {
           {activeTab === "dashboard" && (
             <CandidateDashboard
               user={user}
-              onNavigate={(tab) => setActiveTab(tab)}
+              onNavigate={(tab) => {
+                if (tab === "setup" || tab === "interview") {
+                  handleGoToInterview();
+                } else {
+                  setActiveTab(tab);
+                }
+              }}
               onStartAptitude={() => setActiveTab("aptitude")}
               onStartCoding={() => setActiveTab("coding")}
-              onStartInterview={() => setActiveTab("setup")}
+              onStartInterview={handleGoToInterview}
               onStartRoadmap={() => setActiveTab("roadmap")}
               onStartRetest={handleStartRetest}
               onViewAttemptReport={handleViewAttemptReport}
@@ -196,7 +222,7 @@ export default function App() {
           {activeTab === "coding" && (
             <CodingView
               user={user}
-              onGoToInterview={() => setActiveTab("setup")}
+              onGoToInterview={handleGoToInterview}
               onGoToDashboard={() => setActiveTab("dashboard")}
               onStartRetest={handleStartRetest}
               retestLoading={retestLoading}
@@ -269,10 +295,10 @@ export default function App() {
       <footer className="border-t border-slate-800/80 bg-slate-950/60 py-6 px-4 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 font-semibold text-slate-400">
-            <span>PRESSURE-AI</span>
+            <span className="text-white font-bold">MockMind AI</span>
             <span>•</span>
-            <span className="text-[11px] text-orange-400 font-normal">
-              Placement Preparation, Technical Interview & Adaptive Learning Platform
+            <span className="text-[11px] text-orange-400 font-medium">
+              AI That Thinks Like a Real Interviewer
             </span>
           </div>
           <div>

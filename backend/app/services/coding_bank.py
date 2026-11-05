@@ -1,4 +1,4 @@
-# Curated Coding Problems Bank for PRESSURE-AI
+# Curated Coding Problems Bank for MockMind AI
 # Languages supported: Python (primary runner), Java, C, C++, JavaScript
 # Problem Types: Recursion, Arrays, Strings, Functions, OOP, Searching, Sorting, Data Structures, Algorithms
 

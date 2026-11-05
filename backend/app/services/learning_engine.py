@@ -198,10 +198,10 @@ class LearningEngine:
             },
             {
                 "stage_number": 5,
-                "title": "Phase 5: Retake PRESSURE-AI Adaptive Interview",
+                "title": "Phase 5: Retake MockMind AI Adaptive Interview",
                 "focus_topic": "Verification & Progress Comparison",
                 "action_items": [
-                    "Launch a 10-question Advanced adaptive interview on PRESSURE-AI",
+                    "Launch a 10-question Advanced adaptive interview on MockMind AI",
                     "Verify topic scores surpass 80% with zero pressure mode activations",
                     "Inspect longitudinal progress chart and track upward delta"
                 ],

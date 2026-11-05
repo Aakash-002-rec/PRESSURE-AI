@@ -1,10 +1,19 @@
-# PRESSURE-AI: Adaptive AI-Powered Interview & Personalized Learning Platform
+# MockMind AI: An Intelligent Adaptive Assessment, Technical Interview, and Personalized Learning Platform
+
+**AI That Thinks Like a Real Interviewer**
+
+*An intelligent platform for aptitude assessment, coding evaluation, AI mock interviews, adaptive skill analysis, and personalized learning.*
 
 [![Status: Operational](https://img.shields.io/badge/Status-Operational-brightgreen)](#)
 [![Stack: FastAPI + React + Vite](https://img.shields.io/badge/Stack-FastAPI%20%7C%20React%20%7C%20Tailwind-blue)](#)
 [![Engine: Adaptive Difficulty & Pressure Mode](https://img.shields.io/badge/Engine-Pressure%20Mode%20Active-orange)](#)
 
-> **"PRESSURE-AI is an adaptive AI-powered interview and assessment platform that analyzes candidate responses, identifies weak concepts, dynamically adapts interview difficulty, provides targeted pressure questions, and generates a personalized learning roadmap for improvement."**
+> **"MockMind AI is an intelligent adaptive assessment, technical interview, and personalized learning platform that analyzes candidate responses, identifies weak concepts, dynamically adapts interview difficulty, provides targeted challenge questions, and generates a personalized learning roadmap for improvement."**
+
+### Understanding the Name: MockMind AI
+- **Mock:** A simulated practice interview that mimics a real technical interview environment.
+- **Mind:** An intelligent system that evaluates answers, adapts to user performance, and provides feedback through AI-assisted evaluation and adaptation.
+- **AI:** Artificial Intelligence used for question generation, answer evaluation, adaptive assessment, and personalized learning.
 
 ---
 
@@ -18,7 +27,7 @@ Traditional online technical assessments and mock interview platforms rely on st
 ---
 
 ## 2. Abstract
-**PRESSURE-AI** resolves these challenges by introducing a closed-loop adaptive interview and assessment engine. Rather than simply functioning as a chatbot, the platform couples an AI interviewer persona with server-side decision modules:
+**MockMind AI** resolves these challenges by introducing a closed-loop adaptive interview and assessment engine. Rather than simply functioning as a chatbot, the platform couples an AI interviewer persona with server-side decision modules:
 1. Evaluates candidate answers across 4 strict dimensions: **Correctness, Relevance, Conceptual Depth, and Completeness**.
 2. Tracks topic mastery and runs a **Rule-Based Weakness Detection Engine**.
 3. Dynamically adapts subsequent question difficulty (*Beginner → Intermediate → Advanced*).
@@ -41,7 +50,7 @@ Traditional online technical assessments and mock interview platforms rely on st
 
 ## 4. Existing System vs. Proposed System
 
-| Dimension | Conventional Mock Platforms | PRESSURE-AI (Proposed System) |
+| Dimension | Conventional Mock Platforms | MockMind AI (Proposed System) |
 |---|---|---|
 | **Question Sequencing** | Static or random question lists | Dynamic, state-driven adaptive sequencing |
 | **Evaluation Depth** | Binary pass/fail or unstructured prose | Structured 4-axis JSON scoring + missing concepts |
@@ -54,7 +63,7 @@ Traditional online technical assessments and mock interview platforms rely on st
 ---
 
 ## 5. Literature Review Placeholder
-*Modern computer-adaptive testing (CAT) traces its origins to Item Response Theory (IRT), traditionally applied in standardized psychometric examinations. In technical software engineering recruitment, conventional CAT approaches fall short because coding answers are multi-faceted, open-ended, and context-dependent. Recent developments in Large Language Models (LLMs) enable real-time semantic extraction and conceptual classification. PRESSURE-AI synthesizes rule-based decision trees with LLM semantic evaluators, ensuring deterministic progression guardrails while benefiting from nuanced natural-language comprehension.*
+*Modern computer-adaptive testing (CAT) traces its origins to Item Response Theory (IRT), traditionally applied in standardized psychometric examinations. In technical software engineering recruitment, conventional CAT approaches fall short because coding answers are multi-faceted, open-ended, and context-dependent. Recent developments in Large Language Models (LLMs) enable real-time semantic extraction and conceptual classification. MockMind AI synthesizes rule-based decision trees with LLM semantic evaluators, ensuring deterministic progression guardrails while benefiting from nuanced natural-language comprehension.*
 
 ---
 
@@ -106,7 +115,7 @@ Traditional online technical assessments and mock interview platforms rely on st
 
 ## 7. Supported Domains & Expandability
 
-PRESSURE-AI is designed with a database-driven domain and topic architecture. More domains can be added without code modifications.
+MockMind AI is designed with a database-driven domain and topic architecture. More domains can be added without code modifications.
 
 ### Initial 13 Supported Domains:
 1. **Programming Languages**:

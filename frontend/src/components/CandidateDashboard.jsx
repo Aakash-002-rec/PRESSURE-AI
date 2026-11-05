@@ -203,11 +203,14 @@ export default function CandidateDashboard({
                 </div>
               )}
             </div>
-            <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight mb-3">
-              Welcome to PRESSURE<span className="text-orange-500">-AI</span>
+            <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight mb-2">
+              Welcome to MockMind<span className="text-orange-500"> AI</span>
             </h1>
+            <p className="text-sm md:text-base font-semibold text-orange-400 mb-2">
+              AI That Thinks Like a Real Interviewer
+            </p>
             <p className="text-xs md:text-sm text-slate-300 leading-relaxed font-normal">
-              Master technical recruitment from first principles. Progress seamlessly through diagnostic <strong>Aptitude</strong>, live <strong>Coding</strong>, and closed-loop <strong>AI Mock Interviews</strong> with targeted <strong>🔥 Pressure Mode</strong> probing.
+              An intelligent platform for aptitude assessment, coding evaluation, AI mock interviews, adaptive skill analysis, and personalized learning.
             </p>
           </div>
 

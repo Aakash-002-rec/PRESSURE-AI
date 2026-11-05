@@ -16,8 +16,8 @@ from .routers import (
 init_db()
 
 app = FastAPI(
-    title="PRESSURE-AI API",
-    description="Adaptive AI-Powered Placement Preparation, Technical Interview & Personalized Learning Platform",
+    title="MockMind AI API",
+    description="MockMind AI: An Intelligent Adaptive Assessment, Technical Interview, and Personalized Learning Platform",
     version="2.0.0"
 )
 
@@ -51,8 +51,9 @@ app.include_router(assessment_routes.router)
 @app.get("/")
 def root():
     return {
-        "platform": "PRESSURE-AI",
-        "tagline": "Adaptive AI-Powered Interview & Personalized Learning Platform",
+        "platform": "MockMind AI",
+        "tagline": "AI That Thinks Like a Real Interviewer",
+        "technical_title": "MockMind AI: An Intelligent Adaptive Assessment, Technical Interview, and Personalized Learning Platform",
         "status": "operational",
         "version": "1.0.0",
         "core_innovations": [

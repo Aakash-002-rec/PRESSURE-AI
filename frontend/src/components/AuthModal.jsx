@@ -70,9 +70,12 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
             Interview Preparation Portal
           </div>
           <h2 className="text-2xl font-bold text-white tracking-tight">
-            {isRegister ? "Create Your Account" : "Welcome to PRESSURE-AI"}
+            {isRegister ? "Create Your Account" : "Welcome to MockMind AI"}
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-orange-400 font-medium mt-1">
+            AI That Thinks Like a Real Interviewer
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
             {isRegister ? "Join to practice adaptive technical interviews" : "Sign in to access your interview arena & learning roadmap"}
           </p>
         </div>

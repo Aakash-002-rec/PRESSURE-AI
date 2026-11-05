@@ -443,7 +443,7 @@ export default function RoadmapView({ initialTopic = "Recursion", onRetakeInterv
                 onClick={onRetakeInterview}
                 className="w-full py-3 bg-gradient-to-r from-orange-500 to-amber-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2"
               >
-                Launch Retest on PRESSURE-AI Interview Arena <ArrowRight className="w-4 h-4" />
+                Launch Retest on MockMind AI Interview Arena <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           )}

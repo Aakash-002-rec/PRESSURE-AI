@@ -1,4 +1,4 @@
-# Reliable Aptitude Question Bank for PRESSURE-AI
+# Reliable Aptitude Question Bank for MockMind AI
 # Categories: Quantitative Aptitude, Logical Reasoning, Verbal Ability, Data Interpretation
 # Difficulties: Beginner, Intermediate, Advanced
 

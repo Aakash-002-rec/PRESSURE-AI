@@ -88,7 +88,7 @@ export default function ReportView({ interviewId, onRetakeInterview, onGoToProgr
               </span>
             </div>
             <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight">
-              PRESSURE<span className="text-orange-500">-AI</span> Interview Evaluation
+              MockMind<span className="text-orange-500"> AI</span> Interview Evaluation
             </h1>
             <p className="text-xs md:text-sm text-slate-300 mt-1">
               Candidate: <strong className="text-white">{report.candidate_name}</strong> • Domain:{" "}

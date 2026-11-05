@@ -1,7 +1,7 @@
 import React from "react";
 import { Flame, BrainCircuit, BarChart3, ShieldCheck, User, LogOut, Info, Sparkles, PlusCircle } from "lucide-react";
 
-export default function Navbar({ user, onLogout, activeTab, setActiveTab, onOpenAuth, onOpenHowItWorks }) {
+export default function Navbar({ user, onLogout, activeTab, setActiveTab, onGoToInterview, onOpenAuth, onOpenHowItWorks }) {
   return (
     <nav className="sticky top-0 z-50 glass-panel border-b border-slate-800 px-4 lg:px-8 py-3.5">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -10,19 +10,19 @@ export default function Navbar({ user, onLogout, activeTab, setActiveTab, onOpen
           onClick={() => setActiveTab("dashboard")}
           className="flex items-center gap-2.5 cursor-pointer group"
         >
-          <div className="relative w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-600 via-red-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-600/30 group-hover:scale-105 transition-transform">
-            <Flame className="w-6 h-6 text-white animate-pulse" />
+          <div className="relative w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-600 via-amber-600 to-orange-500 flex items-center justify-center shadow-lg shadow-orange-600/30 group-hover:scale-105 transition-transform">
+            <BrainCircuit className="w-6 h-6 text-white animate-pulse" />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-extrabold text-xl tracking-tight text-white">
-                PRESSURE<span className="text-orange-500 font-black">-AI</span>
+                MockMind <span className="text-orange-500 font-black">AI</span>
               </span>
               <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20">
                 Adaptive
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 font-medium">Intelligent Technical Interview Platform</p>
+            <p className="text-[11px] text-orange-400/90 font-medium">AI That Thinks Like a Real Interviewer</p>
           </div>
         </div>
 
@@ -63,7 +63,7 @@ export default function Navbar({ user, onLogout, activeTab, setActiveTab, onOpen
             </button>
 
             <button
-              onClick={() => setActiveTab("setup")}
+              onClick={() => onGoToInterview ? onGoToInterview() : setActiveTab("setup")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeTab === "setup" || activeTab === "interview"
                   ? "bg-orange-500 text-white shadow-md shadow-orange-500/20"

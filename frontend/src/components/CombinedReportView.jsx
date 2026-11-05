@@ -154,7 +154,7 @@ export default function CombinedReportView({
             </div>
 
             <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight">
-              PRESSURE<span className="text-orange-500">-AI</span> Diagnostic Report
+              MockMind<span className="text-orange-500"> AI</span> Diagnostic Report
             </h1>
             <p className="text-xs md:text-sm text-slate-300 mt-1 max-w-2xl leading-relaxed">
               Comprehensive candidate profile synthesizing <strong>Aptitude Reasoning</strong>, <strong>Algorithmic Coding (3 Problems)</strong>, and <strong>Adaptive AI Mock Interview</strong>.

@@ -16,13 +16,44 @@ export default function HowItWorksModal({ isOpen, onClose }) {
 
         <div className="mb-6">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-bold mb-2">
-            <Flame className="w-3.5 h-3.5" />
+            <BrainCircuit className="w-3.5 h-3.5" />
             Core Innovation & Architecture
           </div>
-          <h2 className="text-2xl font-black text-white">How PRESSURE-AI Works</h2>
-          <p className="text-xs text-slate-400 mt-1">
-            "PRESSURE-AI is an adaptive AI-powered interview and assessment platform that analyzes candidate responses, identifies weak concepts, dynamically adapts interview difficulty, provides targeted pressure questions, and generates a personalized learning roadmap for improvement."
+          <h2 className="text-2xl font-black text-white">How MockMind AI Works</h2>
+          <p className="text-sm font-semibold text-orange-400 mt-1">
+            AI That Thinks Like a Real Interviewer
           </p>
+          <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+            "MockMind AI is an intelligent adaptive assessment, technical interview, and personalized learning platform that analyzes candidate responses, identifies weak concepts, dynamically adapts interview difficulty, provides targeted challenge questions, and generates a personalized learning roadmap for improvement."
+          </p>
+        </div>
+
+        {/* Project Name Breakdown */}
+        <div className="mb-8 p-4 rounded-2xl bg-slate-950/80 border border-slate-800">
+          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-orange-400" />
+            Understanding the Name: MockMind AI
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800/80">
+              <span className="text-orange-400 font-extrabold text-sm block mb-1">MOCK</span>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                A simulated practice interview that mimics a real technical interview environment.
+              </p>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800/80">
+              <span className="text-amber-400 font-extrabold text-sm block mb-1">MIND</span>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                An intelligent system that evaluates answers, adapts to user performance, and provides actionable feedback through AI-assisted evaluation and adaptation.
+              </p>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800/80">
+              <span className="text-cyan-400 font-extrabold text-sm block mb-1">AI</span>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                Artificial Intelligence used for question generation, answer evaluation, adaptive assessment, and personalized learning.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* 6 Step Adaptive Feedback Loop */}

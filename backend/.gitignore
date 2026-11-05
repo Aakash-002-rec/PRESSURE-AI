@@ -5,5 +5,8 @@ __pycache__/
 *.py[cod]
 *.sqlite3
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 .venv/
 venv/

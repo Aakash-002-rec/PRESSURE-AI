@@ -44,7 +44,7 @@ def get_roadmap_tasks(topic: Optional[str] = Query(None), current_user: dict = D
             (2, f"Phase 2: Practice Basic {topic} Exercises", "Implement canonical baseline problems to establish confident muscle memory."),
             (3, f"Phase 3: Boundary Conditions & Edge Case Drills", "Stress test solutions with empty inputs, negative numbers, and boundary limits."),
             (4, f"Phase 4: Attempt {topic} Mini-Assessment Under Time Limit", "Solve timed problems to simulate interview stress conditions."),
-            (5, "Phase 5: Retake PRESSURE-AI Adaptive Interview", "Conquer the AI interviewer in Pressure Mode and prove measurable score improvement.")
+            (5, "Phase 5: Retake MockMind AI Adaptive Interview", "Conquer the AI interviewer in Pressure Mode and prove measurable score improvement.")
         ]
         for s_num, title, obj in default_stages:
             cursor.execute("""

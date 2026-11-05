@@ -478,7 +478,7 @@ class LLMService:
                 f"Step 2: Trace execution step-by-step with pen and paper or debugger for 3 standard examples.",
                 f"Step 3: Implement 5 canonical problems without using hints or external assistance.",
                 f"Step 4: Conduct code reviews and analyze failure modes / edge cases.",
-                f"Step 5: Retake the PRESSURE-AI adaptive interview to validate mastery."
+                f"Step 5: Retake the MockMind AI adaptive interview to validate mastery."
             ],
             "practice_questions": [
                 {

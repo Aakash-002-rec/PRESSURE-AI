@@ -115,6 +115,10 @@ export default function CodingView({
 
       // If all 3 are completed:
       if (statusData?.all_completed || statusData?.completed_count >= 3) {
+        if (onGoToInterview) {
+          onGoToInterview();
+          return;
+        }
         setProblems([]);
         setSelectedProblemId(null);
         return;
@@ -777,7 +781,7 @@ def two_sum(nums: List[int], target: int) -> List[int]:
                 onClick={onGoToInterview}
                 className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-orange-500/25"
               >
-                Proceed to AI Interview <ArrowRight className="w-4 h-4" />
+                Proceed to AI Interview Questions <ArrowRight className="w-4 h-4" />
               </button>
               {onStartRetest && (
                 <button
@@ -1255,11 +1259,15 @@ def two_sum(nums: List[int], target: int) -> List[int]:
               {executionResult?.correctness === 100 && (
                 <button
                   type="button"
-                  onClick={handleNextProblem}
+                  onClick={
+                    (codingStatus?.completed_count >= 3 || (codingStatus?.completed_count === 2 && executionResult?.correctness === 100) || currentProblem?.question_number === 3)
+                      ? onGoToInterview
+                      : handleNextProblem
+                  }
                   className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-md shadow-emerald-500/20"
                 >
                   {(codingStatus?.completed_count >= 3 || (codingStatus?.completed_count === 2 && executionResult?.correctness === 100) || currentProblem?.question_number === 3)
-                    ? "Finish Coding Assessment"
+                    ? "Proceed to AI Interview Questions"
                     : "Next Problem"} <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               )}

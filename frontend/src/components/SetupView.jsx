@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   Play, Sparkles, Sliders, Layers, Target, Compass, Flame, 
-  Code2, CheckCircle2, ChevronRight, Zap, RefreshCw
+  Code2, CheckCircle2, ChevronRight, Zap, RefreshCw, BrainCircuit
 } from "lucide-react";
 import { api } from "../api";
 
@@ -17,10 +17,26 @@ export default function SetupView({ onStartInterview, user, onOpenAuth }) {
   const [difficulty, setDifficulty] = useState("Intermediate");
   const [interviewType, setInterviewType] = useState("Mixed");
   const [totalQuestions, setTotalQuestions] = useState(10);
+  const [activeInterview, setActiveInterview] = useState(null);
 
   useEffect(() => {
     fetchDomains();
-  }, []);
+    if (user) {
+      checkActiveInterview();
+    }
+  }, [user]);
+
+  async function checkActiveInterview() {
+    try {
+      const list = await api.interviews.list();
+      const inProgress = list.find((iv) => iv.status === "in_progress" && !iv.is_timeout);
+      if (inProgress) {
+        setActiveInterview(inProgress);
+      }
+    } catch (err) {
+      console.warn("Could not check active interviews:", err);
+    }
+  }
 
   async function fetchDomains() {
     try {
@@ -97,12 +113,15 @@ export default function SetupView({ onStartInterview, user, onOpenAuth }) {
         <div className="absolute top-0 right-0 -mt-10 -mr-10 w-96 h-96 bg-orange-600/10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="relative z-10 max-w-3xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-semibold mb-4">
-            <Flame className="w-3.5 h-3.5" />
+            <BrainCircuit className="w-3.5 h-3.5" />
             Next-Gen Adaptive Assessment Engine
           </div>
-          <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight mb-3">
-            Master Technical Interviews with <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-amber-300 to-orange-500">PRESSURE-AI</span>
+          <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight mb-2">
+            Master Technical Interviews with <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-amber-300 to-orange-500">MockMind AI</span>
           </h1>
+          <p className="text-sm font-semibold text-orange-400 mb-3">
+            AI That Thinks Like a Real Interviewer
+          </p>
           <p className="text-sm md:text-base text-slate-300 leading-relaxed mb-6">
             Not a static questionnaire. Our AI interviewer analyzes your answers in real time, isolates your exact conceptual weaknesses, adapts questioning difficulty, and triggers <strong className="text-orange-400">Pressure Mode</strong> to challenge you where it counts most.
           </p>
@@ -114,6 +133,34 @@ export default function SetupView({ onStartInterview, user, onOpenAuth }) {
           </div>
         </div>
       </div>
+
+      {/* Active in-progress interview banner */}
+      {activeInterview && (
+        <div className="mb-6 p-5 rounded-2xl bg-gradient-to-r from-orange-500/15 via-amber-500/10 to-orange-500/15 border border-orange-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in shadow-lg shadow-orange-500/10">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-orange-500/20 text-orange-400 shrink-0">
+              <BrainCircuit className="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-orange-400 bg-orange-500/20 px-2 py-0.5 rounded">
+                  In Progress
+                </span>
+                <h4 className="text-sm font-bold text-white">Active AI Interview Session</h4>
+              </div>
+              <p className="text-xs text-slate-300 mt-1">
+                Domain: <strong className="text-orange-400">{activeInterview.domain_name}</strong> • Level: <strong className="text-white">{activeInterview.difficulty}</strong> • Answered: <strong className="text-emerald-400">{activeInterview.answered_questions} of {activeInterview.total_questions}</strong> Questions
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onStartInterview(activeInterview)}
+            className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 shrink-0"
+          >
+            Resume AI Interview Questions <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-center justify-between">
